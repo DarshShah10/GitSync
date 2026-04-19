@@ -1,0 +1,111 @@
+.shell { display: flex; min-height: 100vh; }
+
+.sidebar {
+  width: 224px;
+  flex-shrink: 0;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 20px 0;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 20px 24px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+
+.logoMark {
+  width: 28px;
+  height: 28px;
+  background: var(--accent);
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  flex-shrink: 0;
+  box-shadow: 0 0 12px rgba(59,130,246,0.4);
+}
+
+.logoText {
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.5px;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 10px;
+  flex: 1;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all var(--transition);
+  text-decoration: none;
+  border: 1px solid transparent;
+}
+
+.navItem:hover {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+
+.active {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+
+.active:hover {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+.sidebarFooter {
+  padding: 16px 20px 0;
+  border-top: 1px solid var(--border);
+  margin-top: auto;
+}
+
+.version {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 40px 48px;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .sidebar { width: 56px; }
+  .logoText, .navItem span, .version { display: none; }
+  .logo { justify-content: center; padding: 0 0 20px; }
+  .navItem { justify-content: center; padding: 10px; }
+  .main { padding: 24px 16px; }
+}
