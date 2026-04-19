@@ -1,0 +1,127 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ServerStatus {
+  PENDING
+  VERIFYING
+  READY
+  UNREACHABLE
+  ERROR
+}
+
+enum DatabaseType {
+  MONGODB
+  POSTGRESQL
+  MYSQL
+  MARIADB
+  REDIS
+  KEYDB
+  DRAGONFLY
+  CLICKHOUSE
+}
+
+enum DatabaseStatus {
+  CREATING
+  RUNNING
+  STOPPED
+  ERROR
+}
+
+enum BackupStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+enum AuthType {
+  PASSWORD
+  KEY
+}
+
+model Server {
+  id            String       @id @default(uuid())
+  name          String
+  ip            String
+  port          Int          @default(22)
+  username      String       @default("root")
+
+  // Auth — one of these will be set depending on authType
+  authType      AuthType     @default(KEY)
+  privateKey    String?      // null when using password auth
+  password      String?      // null when using key auth
+
+  status        ServerStatus @default(PENDING)
+  dockerVersion String?
+  lastCheckedAt DateTime?
+  errorMessage  String?
+
+  databases     Database[]
+
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@map("servers")
+}
+
+model Database {
+  id               String         @id @default(uuid())
+  name             String
+  type             DatabaseType
+  status           DatabaseStatus @default(CREATING)
+
+  containerId      String?
+  containerName    String?
+  internalPort     Int
+
+  dbUser           String?
+  dbPassword       String
+  dbName           String?
+
+  isPublic         Boolean        @default(false)
+  publicPort       Int?
+  connectionString String?
+
+  serverId         String
+  server           Server         @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  backups          Backup[]
+
+  errorMessage     String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@map("databases")
+}
+
+model Backup {
+  id           String       @id @default(uuid())
+  status       BackupStatus @default(PENDING)
+
+  s3Endpoint   String
+  s3Bucket     String
+  s3AccessKey  String
+  s3SecretKey  String
+  s3Region     String       @default("auto")
+  s3Path       String?
+
+  schedule     String?
+  sizeBytes    BigInt?
+  errorMessage String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+
+  databaseId   String
+  database     Database     @relation(fields: [databaseId], references: [id], onDelete: Cascade)
+
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@map("backups")
+}
