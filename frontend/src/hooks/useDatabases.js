@@ -10,9 +10,11 @@ import {
   stopDatabase,
   restartDatabase,
   deleteDatabase,
-  createBackup,
-  getBackups,
+  createBackupConfig,
+  getBackupConfigs,
+  deleteBackupConfig,
   triggerBackup,
+  getBackupExecutions,
   testS3,
 } from '../services/databases.js'
 
@@ -22,9 +24,9 @@ const TERMINAL_STATUSES = ['RUNNING', 'STOPPED', 'ERROR']
 
 export function useDatabases(serverId) {
   return useQuery({
-    queryKey: ['databases', serverId ?? 'all'],
-    queryFn:  () => getDatabases(serverId),
-    refetchInterval: 5000, // poll for status changes
+    queryKey:        ['databases', serverId ?? 'all'],
+    queryFn:         () => getDatabases(serverId),
+    refetchInterval: 5000,
   })
 }
 
@@ -36,10 +38,6 @@ export function useDatabase(id) {
   })
 }
 
-/**
- * Polls database status while it's in a non-terminal state (CREATING).
- * Stops polling once RUNNING / STOPPED / ERROR.
- */
 export function useDatabaseStatus(id) {
   return useQuery({
     queryKey: ['database-status', id],
@@ -55,18 +53,18 @@ export function useDatabaseStatus(id) {
 
 export function useDatabaseStats(id, enabled = true) {
   return useQuery({
-    queryKey: ['database-stats', id],
-    queryFn:  () => getDatabaseStats(id),
-    enabled:  !!id && enabled,
-    refetchInterval: 10000, // refresh every 10s
+    queryKey:        ['database-stats', id],
+    queryFn:         () => getDatabaseStats(id),
+    enabled:         !!id && enabled,
+    refetchInterval: 10000,
   })
 }
 
 export function useDatabaseLogs(id, tail = 100, enabled = true) {
   return useQuery({
-    queryKey: ['database-logs', id, tail],
-    queryFn:  () => getDatabaseLogs(id, tail),
-    enabled:  !!id && enabled,
+    queryKey:        ['database-logs', id, tail],
+    queryFn:         () => getDatabaseLogs(id, tail),
+    enabled:         !!id && enabled,
     refetchInterval: 15000,
   })
 }
@@ -75,9 +73,7 @@ export function useCreateDatabase() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: createDatabase,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['databases'] })
-    },
+    onSuccess:  () => qc.invalidateQueries({ queryKey: ['databases'] }),
   })
 }
 
@@ -122,41 +118,65 @@ export function useDeleteDatabase() {
     mutationFn: (id) => deleteDatabase(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['databases'] })
-      qc.invalidateQueries({ queryKey: ['servers'] }) // update DB counts
+      qc.invalidateQueries({ queryKey: ['servers'] })
     },
   })
 }
 
-// ── BACKUPS ──────────────────────────────────────────────────────────────────
+// ── BACKUP CONFIGS ────────────────────────────────────────────────────────────
 
-export function useBackups(databaseId) {
+export function useBackupConfigs(databaseId) {
   return useQuery({
-    queryKey: ['backups', databaseId],
-    queryFn:  () => getBackups(databaseId),
-    enabled:  !!databaseId,
+    queryKey:        ['backup-configs', databaseId],
+    queryFn:         () => getBackupConfigs(databaseId),
+    enabled:         !!databaseId,
     refetchInterval: 10000,
   })
 }
 
-export function useCreateBackup() {
+export function useCreateBackupConfig() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ databaseId, ...data }) => createBackup(databaseId, data),
+    mutationFn: ({ databaseId, ...data }) => createBackupConfig(databaseId, data),
     onSuccess: (_, { databaseId }) => {
-      qc.invalidateQueries({ queryKey: ['backups', databaseId] })
+      qc.invalidateQueries({ queryKey: ['backup-configs', databaseId] })
     },
   })
 }
 
-export function useTriggerBackup() {
+export function useDeleteBackupConfig() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: triggerBackup,
+    mutationFn: ({ configId }) => deleteBackupConfig(configId),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['backups'] })
+      qc.invalidateQueries({ queryKey: ['backup-configs'] })
     },
   })
 }
+
+// ── BACKUP EXECUTIONS ─────────────────────────────────────────────────────────
+
+export function useTriggerBackup() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (configId) => triggerBackup(configId),
+    onSuccess: (_, configId) => {
+      qc.invalidateQueries({ queryKey: ['backup-executions', configId] })
+      qc.invalidateQueries({ queryKey: ['backup-configs'] })
+    },
+  })
+}
+
+export function useBackupExecutions(configId, enabled = true) {
+  return useQuery({
+    queryKey:        ['backup-executions', configId],
+    queryFn:         () => getBackupExecutions(configId),
+    enabled:         !!configId && enabled,
+    refetchInterval: 5000,
+  })
+}
+
+// ── S3 ────────────────────────────────────────────────────────────────────────
 
 export function useTestS3() {
   return useMutation({

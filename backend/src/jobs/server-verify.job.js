@@ -16,43 +16,40 @@ async function processServerVerify(job) {
     console.log(line)
   }
 
-  // ── Load server ────────────────────────────────────────────────
+  // Load server + credential
   const server = await prisma.server.findUnique({
-    where: { id: serverId },
+    where:   { id: serverId },
+    include: { credential: true },
   })
 
-  if (!server) {
-    throw new Error(`Server ${serverId} not found in database.`)
-  }
+  if (!server) throw new Error(`Server ${serverId} not found in database.`)
+  if (!server.credential) throw new Error(`Server ${serverId} has no credential record.`)
 
   log(`Starting verification for server: ${server.name} (${server.ip})`)
 
-  // ── Debug log — confirms what auth method DB has ───────────────
   console.log('[server-verify] Auth debug:', {
     serverId:    server.id,
-    authType:    server.authType,
-    hasPassword: !!server.password,
-    hasKey:      !!server.privateKey,
+    authType:    server.credential.authType,
+    hasPassword: !!server.credential.sshPassword,
+    hasKey:      !!server.credential.sshPrivateKey,
   })
 
-  // Mark as VERIFYING
   await prisma.server.update({
     where: { id: serverId },
-    data: { status: 'VERIFYING', errorMessage: null },
+    data:  { status: 'VERIFYING', errorMessage: null },
   })
 
-  // ── Build server config — ALWAYS use authType from DB ──────────
   const serverConfig = {
     ip:         server.ip,
-    port:       server.port,
-    username:   server.username,
-    authType:   server.authType,           // 'PASSWORD' or 'KEY'
-    password:   server.password   ?? null, // only set if PASSWORD
-    privateKey: server.privateKey ?? null, // only set if KEY
+    port:       server.sshPort,
+    username:   server.credential.sshUsername,
+    authType:   server.credential.authType,       // 'SSH_KEY' | 'PASSWORD'
+    password:   server.credential.sshPassword   ?? null,
+    privateKey: server.credential.sshPrivateKey ?? null,
   }
 
-  // ── Step 1: Test SSH connection ────────────────────────────────
-  log(`Step 1/2: Testing SSH connection (authType: ${server.authType})...`)
+  // ── Step 1: Test SSH connection ────────────────────────────────────────────
+  log(`Step 1/2: Testing SSH connection (authType: ${server.credential.authType})...`)
   await job.updateProgress(10)
 
   const { ok, latencyMs, error: sshError } = await testConnection(serverConfig)
@@ -64,8 +61,8 @@ async function processServerVerify(job) {
     await prisma.server.update({
       where: { id: serverId },
       data: {
-        status:       'UNREACHABLE',
-        errorMessage: message,
+        status:        'UNREACHABLE',
+        errorMessage:  message,
         lastCheckedAt: new Date(),
       },
     })
@@ -76,12 +73,10 @@ async function processServerVerify(job) {
   log(`SSH connection successful. Latency: ${latencyMs}ms ✓`)
   await job.updateProgress(40)
 
-  // ── Step 2: Ensure Docker ──────────────────────────────────────
+  // ── Step 2: Ensure Docker ──────────────────────────────────────────────────
   log('Step 2/2: Checking Docker...')
 
-  const docker = await ensureDockerReady(serverConfig, {
-    onLog: (msg) => log(msg),
-  })
+  const docker = await ensureDockerReady(serverConfig, { onLog: (msg) => log(msg) })
 
   await job.updateProgress(80)
 
@@ -92,8 +87,8 @@ async function processServerVerify(job) {
     await prisma.server.update({
       where: { id: serverId },
       data: {
-        status:       'ERROR',
-        errorMessage: message,
+        status:        'ERROR',
+        errorMessage:  message,
         lastCheckedAt: new Date(),
       },
     })
@@ -101,14 +96,13 @@ async function processServerVerify(job) {
     throw new Error(message)
   }
 
-  // ── All good ───────────────────────────────────────────────────
   log(`Docker ${docker.version} confirmed. ✓`)
-  log('Server verification complete. Status → READY')
+  log('Server verification complete. Status → CONNECTED')
 
   await prisma.server.update({
     where: { id: serverId },
     data: {
-      status:        'READY',
+      status:        'CONNECTED',    // was READY — renamed in new schema
       dockerVersion: docker.version,
       errorMessage:  null,
       lastCheckedAt: new Date(),
@@ -119,7 +113,7 @@ async function processServerVerify(job) {
 
   return {
     serverId,
-    status:        'READY',
+    status:        'CONNECTED',
     dockerVersion: docker.version,
     sshLatencyMs:  latencyMs,
   }

@@ -31,10 +31,10 @@ export const createServerSchema = z.object({
     .trim()
     .default('root'),
 
-  // One of password or privateKey must be provided — enforced below
+  // SSH_KEY = private key auth  |  PASSWORD = password auth
   authType: z
-    .enum(['PASSWORD', 'KEY'])
-    .default('KEY'),
+    .enum(['PASSWORD', 'SSH_KEY'])
+    .default('SSH_KEY'),
 
   password: z
     .string()
@@ -49,17 +49,13 @@ export const createServerSchema = z.object({
     .optional(),
 
 }).refine((data) => {
-  // Must provide either password or privateKey
-  if (data.authType === 'PASSWORD') {
-    return !!data.password
-  }
+  if (data.authType === 'PASSWORD') return !!data.password
   return !!data.privateKey
 }, {
   message: 'Provide a password (for password auth) or a private key (for key auth)',
   path: ['authType'],
 }).refine((data) => {
-  // If key auth, validate PEM format
-  if (data.authType === 'KEY' && data.privateKey) {
+  if (data.authType === 'SSH_KEY' && data.privateKey) {
     const validHeaders = [
       '-----BEGIN RSA PRIVATE KEY-----',
       '-----BEGIN OPENSSH PRIVATE KEY-----',
@@ -78,7 +74,7 @@ export const updateServerSchema = z.object({
   name:       z.string().min(1).max(64).trim().optional(),
   port:       z.number().int().min(1).max(65535).optional(),
   username:   z.string().min(1).max(64).trim().optional(),
-  authType:   z.enum(['PASSWORD', 'KEY']).optional(),
+  authType:   z.enum(['PASSWORD', 'SSH_KEY']).optional(),
   password:   z.string().min(1).trim().optional(),
   privateKey: z.string().min(1).trim().optional(),
 })

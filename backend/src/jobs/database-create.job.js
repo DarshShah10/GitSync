@@ -9,8 +9,8 @@ import {
   DB_CONFIGS,
 } from '../services/database.service.js'
 
-async function processDatabaseCreate(job) {
-  const { databaseId } = job.data
+async function processServiceCreate(job) {
+  const { serviceId } = job.data
   const logs = []
 
   function log(message) {
@@ -20,108 +20,108 @@ async function processDatabaseCreate(job) {
     console.log(line)
   }
 
-  // Load database record with server
-  const database = await prisma.database.findUnique({
-    where: { id: databaseId },
-    include: { server: true },
+  // Load the service record with its server + credential
+  const service = await prisma.service.findUnique({
+    where:   { id: serviceId },
+    include: { server: { include: { credential: true } } },
   })
 
-  if (!database) throw new Error(`Database ${databaseId} not found`)
-  if (database.server.status !== 'READY') {
-    throw new Error(`Server ${database.server.name} is not READY. Cannot provision database.`)
+  if (!service) throw new Error(`Service ${serviceId} not found`)
+  if (!service.server.credential) throw new Error(`Server has no credential record`)
+  if (service.server.status !== 'CONNECTED') {
+    throw new Error(
+      `Server ${service.server.name} is not connected (status: ${service.server.status}).`
+    )
   }
 
-  log(`Provisioning ${database.type} database: ${database.name}`)
-  log(`Server: ${database.server.name} (${database.server.ip})`)
+  // Read DB config from the config JSONB field
+  const cfg = service.config
+  if (!cfg?.dbEngine) throw new Error(`Service ${serviceId} has no dbEngine in config`)
+
+  const typeConfig = DB_CONFIGS[cfg.dbEngine]
+  if (!typeConfig) throw new Error(`Unsupported database engine: ${cfg.dbEngine}`)
+
+  log(`Provisioning ${cfg.dbEngine} database: ${service.name}`)
+  log(`Server: ${service.server.name} (${service.server.ip})`)
 
   await job.updateProgress(5)
 
   const serverConfig = {
-    ip:         database.server.ip,
-    port:       database.server.port,
-    username:   database.server.username,
-    authType:   database.server.authType,
-    password:   database.server.password ?? null,
-    privateKey: database.server.privateKey ?? null,
+    ip:         service.server.ip,
+    port:       service.server.sshPort,
+    username:   service.server.credential.sshUsername,
+    authType:   service.server.credential.authType,
+    password:   service.server.credential.sshPassword   ?? null,
+    privateKey: service.server.credential.sshPrivateKey ?? null,
   }
 
-  // Find a free public port
-  log('Finding available port...')
-  const typeConfig = DB_CONFIGS[database.type]
+  // Find a free public port on the server (used by the socat proxy)
+  log('Finding available port…')
   const publicPort = await findFreePort(serverConfig, 20000, 30000)
-
   log(`Assigned public port: ${publicPort}`)
+
   await job.updateProgress(15)
 
-  // Update DB with the port so it's saved even if provisioning fails
-  await prisma.database.update({
-    where: { id: databaseId },
-    data: { publicPort, isPublic: true },
+  // Save port reservation immediately — visible even if provisioning fails
+  await prisma.service.update({
+    where: { id: serviceId },
+    data:  { exposedPort: publicPort, isPublic: true },
   })
 
-  // Provision container
   const dbCfg = {
-    name: database.name,
-    type: database.type,
-    dbUser: database.dbUser ?? 'dbshift',
-    dbPassword: database.dbPassword,
-    dbName: database.dbName,
+    name:         service.name,
+    type:         cfg.dbEngine,
+    dbUser:       cfg.dbUser   ?? 'dbshift',
+    dbPassword:   cfg.dbPassword,
+    dbName:       cfg.dbName,
     publicPort,
-    ip: database.server.ip,
+    ip:           service.server.ip,
     internalPort: typeConfig.internalPort,
   }
 
   await job.updateProgress(20)
 
-  const { containerId, containerName } = await provisionDatabase(
+  const { containerId, containerName, volumeName } = await provisionDatabase(
     serverConfig,
     dbCfg,
     { onLog: log }
   )
 
-  await job.updateProgress(80)
+  await job.updateProgress(85)
 
-  // Build connection strings
-  const { external, internal } = buildConnectionStrings(database.type, {
+  const { external } = buildConnectionStrings(cfg.dbEngine, {
     ...dbCfg,
-    ip: database.server.ip,
+    ip: service.server.ip,
   })
 
-  log(`External connection string built.`)
-  log(`Internal connection string built.`)
+  log('Connection string built.')
 
-  // Save everything to DB
-  await prisma.database.update({
-    where: { id: databaseId },
+  await prisma.service.update({
+    where: { id: serviceId },
     data: {
       status:           'RUNNING',
       containerId,
       containerName,
+      volumeName,
       internalPort:     typeConfig.internalPort,
-      publicPort,
+      exposedPort:      publicPort,
       isPublic:         true,
       connectionString: external,
       errorMessage:     null,
+      lastHealthCheckAt: new Date(),
     },
   })
 
   await job.updateProgress(100)
-  log(`Database ${database.name} provisioned successfully. ✓`)
+  log(`Database ${service.name} provisioned successfully. ✓`)
 
-  return {
-    databaseId,
-    containerId,
-    containerName,
-    publicPort,
-    connectionString: external,
-    internalConnectionString: internal,
-  }
+  return { serviceId, containerId, containerName, volumeName, publicPort, connectionString: external }
 }
 
-export function startDatabaseCreateWorker() {
+export function startServiceCreateWorker() {
   const worker = new Worker(
-    QUEUE_NAMES.DATABASE_CREATE,
-    processDatabaseCreate,
+    QUEUE_NAMES.SERVICE_CREATE,
+    processServiceCreate,
     {
       connection:  createRedisConnection(),
       concurrency: 3,
@@ -129,26 +129,34 @@ export function startDatabaseCreateWorker() {
   )
 
   worker.on('completed', (job, result) => {
-    console.log(`[database-create] Job ${job.id} completed:`, result.databaseId)
+    console.log(`[service-create] Job ${job.id} completed:`, result.serviceId)
   })
 
   worker.on('failed', async (job, err) => {
-    console.error(`[database-create] Job ${job?.id} failed:`, err.message)
+    console.error(`[service-create] Job ${job?.id} failed:`, err.message)
 
-    if (job?.data?.databaseId) {
+    if (job?.data?.serviceId) {
       try {
-        await prisma.database.update({
-          where: { id: job.data.databaseId },
-          data: { status: 'ERROR', errorMessage: err.message },
+        await prisma.service.update({
+          where: { id: job.data.serviceId },
+          data: {
+            status:       'ERROR',
+            errorMessage: err.message,
+            exposedPort:  null,
+            isPublic:     false,
+          },
         })
       } catch (_) {}
     }
   })
 
   worker.on('error', (err) => {
-    console.error('[database-create] Worker error:', err)
+    console.error('[service-create] Worker error:', err)
   })
 
-  console.log('[database-create] Worker started.')
+  console.log('[service-create] Worker started.')
   return worker
 }
+
+// Backward-compat export alias used by old import in workers.js
+export { startServiceCreateWorker as startDatabaseCreateWorker }

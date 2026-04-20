@@ -32,16 +32,26 @@ export const restartDatabase = (id) =>
 export const deleteDatabase = (id) =>
   api.delete(`/api/databases/${id}`).then((r) => r.data)
 
-// ── BACKUPS ──────────────────────────────────────────────────────────────────
+// ── BACKUP CONFIGS ────────────────────────────────────────────────────────────
 
-export const createBackup = (databaseId, data) =>
+export const createBackupConfig = (databaseId, data) =>
   api.post(`/api/databases/${databaseId}/backups`, data).then((r) => r.data)
 
-export const getBackups = (databaseId) =>
+export const getBackupConfigs = (databaseId) =>
   api.get(`/api/databases/${databaseId}/backups`).then((r) => r.data)
 
-export const triggerBackup = (backupId) =>
-  api.post(`/api/backups/${backupId}/run`).then((r) => r.data)
+export const deleteBackupConfig = (configId) =>
+  api.delete(`/api/backups/${configId}`).then((r) => r.data)
+
+// ── BACKUP EXECUTIONS ─────────────────────────────────────────────────────────
+
+export const triggerBackup = (configId) =>
+  api.post(`/api/backups/${configId}/run`).then((r) => r.data)
+
+export const getBackupExecutions = (configId) =>
+  api.get(`/api/backups/${configId}/executions`).then((r) => r.data)
+
+// ── S3 TEST ───────────────────────────────────────────────────────────────────
 
 export const testS3 = (databaseId, data) =>
-  api.post(`/api/databases/${databaseId}/backups/test-s3`, data).then((r) => r.data)
+  api.post(`/api/databases/${databaseId}/backups/test-s3`, data).then((r) => r.data)

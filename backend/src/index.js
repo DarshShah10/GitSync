@@ -5,9 +5,11 @@ import rateLimit from '@fastify/rate-limit'
 
 import { config } from './config/index.js'
 import { registerErrorHandler } from './middleware/errorHandler.js'
+import { attachUser } from './middleware/auth.middleware.js'
 import { healthRoutes } from './routes/health.js'
 import { serverRoutes } from './routes/servers.js'
-import { databaseRoutes } from './routes/databases.js'   // ← Phase 2
+import { databaseRoutes } from './routes/databases.js'
+import { projectRoutes } from './routes/projects.js'
 import { startAllWorkers, stopAllWorkers } from './jobs/workers.js'
 
 export async function buildApp() {
@@ -16,47 +18,52 @@ export async function buildApp() {
       level: config.app.isDev ? 'debug' : 'info',
       transport: config.app.isDev
         ? {
-            target: 'pino-pretty',
+            target:  'pino-pretty',
             options: {
-              colorize: true,
+              colorize:      true,
               translateTime: 'SYS:standard',
-              ignore: 'pid,hostname',
+              ignore:        'pid,hostname',
             },
           }
         : undefined,
     },
-    genReqId: () => crypto.randomUUID(),
+    genReqId:   () => crypto.randomUUID(),
     trustProxy: config.app.isProd,
   })
 
   await app.register(helmet, { contentSecurityPolicy: false })
 
   await app.register(cors, {
-    origin: config.app.isDev ? true : ['http://localhost:5173'],
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    origin:         config.app.isDev ? true : ['http://localhost:5173'],
+    methods:        ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true,
+    credentials:    true,
   })
 
   await app.register(rateLimit, {
-    max: 100,
-    timeWindow: '1 minute',
+    max:                  100,
+    timeWindow:           '1 minute',
     errorResponseBuilder: () => ({
       success: false,
-      error: 'Too many requests. Please slow down.',
+      error:   'Too many requests. Please slow down.',
     }),
   })
 
   registerErrorHandler(app)
 
+  // Attach req.user to every request before route handlers run.
+  // Dev: auto-resolves seeded admin. Prod: will verify JWT.
+  app.addHook('preHandler', attachUser)
+
   await app.register(healthRoutes)
   await app.register(serverRoutes)
-  await app.register(databaseRoutes)   // ← Phase 2
+  await app.register(databaseRoutes)
+  await app.register(projectRoutes)
 
   app.get('/', async () => ({
-    name: 'DBShift API',
-    version: '2.0.0',
-    docs: '/health',
+    name:    'DBShift API',
+    version: '3.0.0',
+    docs:    '/health',
   }))
 
   return app
@@ -67,11 +74,11 @@ async function start() {
   let workers = []
 
   try {
-    app = await buildApp()
+    app     = await buildApp()
     await app.listen({ port: config.app.port, host: config.app.host })
     app.log.info(`Environment: ${config.app.env}`)
     app.log.info(`Server listening on http://${config.app.host}:${config.app.port}`)
-    workers = startAllWorkers()
+    workers = await startAllWorkers()
   } catch (err) {
     if (app) app.log.error(err)
     else console.error('Failed to start server:', err)

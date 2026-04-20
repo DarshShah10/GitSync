@@ -8,9 +8,11 @@ import {
   useStopDatabase,
   useRestartDatabase,
   useDeleteDatabase,
-  useBackups,
-  useCreateBackup,
+  useBackupConfigs,
+  useCreateBackupConfig,
+  useDeleteBackupConfig,
   useTriggerBackup,
+  useBackupExecutions,
   useTestS3,
 } from '../hooks/useDatabases.js'
 import StatusBadge from '../components/StatusBadge.jsx'
@@ -23,46 +25,192 @@ const DB_ICONS = {
 }
 
 const BACKUP_PRESETS = [
-  { label: 'Every hour',   cron: '0 * * * *' },
-  { label: 'Every 6h',    cron: '0 */6 * * *' },
-  { label: 'Daily 2am',   cron: '0 2 * * *' },
-  { label: 'Weekly',      cron: '0 2 * * 0' },
+  { label: 'Every hour', cron: '0 * * * *'   },
+  { label: 'Every 6h',   cron: '0 */6 * * *' },
+  { label: 'Daily 2am',  cron: '0 2 * * *'   },
+  { label: 'Weekly',     cron: '0 2 * * 0'   },
 ]
+
+const BLANK_FORM = {
+  s3Endpoint: '', s3Bucket: '', s3AccessKey: '',
+  s3SecretKey: '', s3Region: 'us-east-1', s3Path: '',
+  schedule: '', triggerNow: true,
+}
+
+// ── Backup execution history panel (per config) ───────────────────────────────
+
+function ExecutionHistory({ configId, onClose }) {
+  const { data, isLoading } = useBackupExecutions(configId, true)
+  const executions = data?.data ?? []
+
+  return (
+    <div className={styles.executionPanel}>
+      <div className={styles.executionPanelHeader}>
+        <span>Execution History</span>
+        <button className={styles.closeHistoryBtn} onClick={onClose}>✕</button>
+      </div>
+      {isLoading ? (
+        <div className={styles.executionLoading}>Loading…</div>
+      ) : executions.length === 0 ? (
+        <div className={styles.executionEmpty}>No runs yet.</div>
+      ) : (
+        <div className={styles.executionList}>
+          {executions.map(ex => (
+            <div key={ex.id} className={styles.executionRow}>
+              <span className={`${styles.execStatus} ${styles[ex.status.toLowerCase()]}`}>
+                {ex.status}
+              </span>
+              <span className={styles.execKey} title={ex.s3Key ?? ''}>
+                {ex.s3Key ? ex.s3Key.split('/').pop() : '—'}
+              </span>
+              <span className={styles.execSize}>
+                {ex.sizeBytes ? `${(Number(ex.sizeBytes) / 1024 / 1024).toFixed(1)} MB` : ''}
+              </span>
+              <span className={styles.execDate}>
+                {ex.completedAt
+                  ? new Date(ex.completedAt).toLocaleString()
+                  : ex.startedAt
+                    ? `Started ${new Date(ex.startedAt).toLocaleString()}`
+                    : new Date(ex.createdAt).toLocaleString()}
+              </span>
+              {ex.errorMessage && (
+                <span className={styles.execError} title={ex.errorMessage}>
+                  {ex.errorMessage.slice(0, 80)}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Per-config card ───────────────────────────────────────────────────────────
+
+function BackupConfigCard({ config, databaseId, dbRunning }) {
+  const [showHistory, setShowHistory] = useState(false)
+  const trigger    = useTriggerBackup()
+  const deleteConf = useDeleteBackupConfig()
+
+  const latestExec       = config.executions?.[0]
+  const executionCount   = config._count?.executions ?? 0
+
+  async function handleRun() {
+    try {
+      await trigger.mutateAsync(config.id)
+      toast.success('Backup started')
+    } catch (err) {
+      toast.error(err?.response?.data?.error ?? 'Failed to trigger backup')
+    }
+  }
+
+  async function handleDelete() {
+    if (!window.confirm('Delete this backup configuration and all its execution history?')) return
+    try {
+      await deleteConf.mutateAsync({ configId: config.id, databaseId })
+      toast.success('Backup config deleted')
+    } catch (err) {
+      toast.error(err?.response?.data?.error ?? 'Failed to delete backup config')
+    }
+  }
+
+  return (
+    <div className={styles.configCard}>
+      <div className={styles.configCardHeader}>
+        <div className={styles.configInfo}>
+          <span className={styles.configBucket}>
+            {config.s3Endpoint
+              ? new URL(config.s3Endpoint).hostname
+              : 'AWS S3'} / {config.s3Bucket}
+          </span>
+          <span className={styles.configPath}>
+            s3://{config.s3Bucket}/{config.s3Path}/
+          </span>
+          {config.schedule && (
+            <span className={styles.configSchedule}>⏰ {config.schedule}</span>
+          )}
+        </div>
+
+        <div className={styles.configActions}>
+          {dbRunning && (
+            <button
+              className={styles.runBtn}
+              onClick={handleRun}
+              disabled={trigger.isPending}
+            >
+              {trigger.isPending ? '…' : '▶ Run Now'}
+            </button>
+          )}
+          <button
+            className={styles.historyBtn}
+            onClick={() => setShowHistory(v => !v)}
+          >
+            📋 {executionCount} run{executionCount !== 1 ? 's' : ''}
+          </button>
+          <button
+            className={styles.deleteConfigBtn}
+            onClick={handleDelete}
+            disabled={deleteConf.isPending}
+            title="Delete config"
+          >
+            🗑
+          </button>
+        </div>
+      </div>
+
+      {latestExec && (
+        <div className={styles.latestExec}>
+          <span className={styles.latestLabel}>Last run:</span>
+          <span className={`${styles.execStatus} ${styles[latestExec.status.toLowerCase()]}`}>
+            {latestExec.status}
+          </span>
+          {latestExec.sizeBytes && (
+            <span className={styles.execSize}>
+              {(Number(latestExec.sizeBytes) / 1024 / 1024).toFixed(1)} MB
+            </span>
+          )}
+          {latestExec.completedAt && (
+            <span className={styles.execDate}>
+              {new Date(latestExec.completedAt).toLocaleString()}
+            </span>
+          )}
+        </div>
+      )}
+
+      {showHistory && (
+        <ExecutionHistory configId={config.id} onClose={() => setShowHistory(false)} />
+      )}
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function DatabaseDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState('overview')
-  const [copied, setCopied] = useState(null)
+  const [activeTab, setActiveTab]   = useState('overview')
+  const [copied, setCopied]         = useState(null)
   const [showBackupForm, setShowBackupForm] = useState(false)
-  const [backupForm, setBackupForm] = useState({
-    s3Endpoint: '',
-    s3Bucket: '',
-    s3AccessKey: '',
-    s3SecretKey: '',
-    s3Region: 'auto',
-    s3Path: '',
-    schedule: '',
-    triggerNow: true,
-  })
+  const [backupForm, setBackupForm] = useState(BLANK_FORM)
 
-  const { data, isLoading } = useDatabase(id)
-  const { data: statsData } = useDatabaseStats(id, activeTab === 'overview')
-  const { data: logsData, refetch: refetchLogs } = useDatabaseLogs(id, 100, activeTab === 'logs')
-  const { data: backupsData } = useBackups(id)
+  const { data, isLoading }                       = useDatabase(id)
+  const { data: statsData }                       = useDatabaseStats(id, activeTab === 'overview')
+  const { data: logsData, refetch: refetchLogs }  = useDatabaseLogs(id, 100, activeTab === 'logs')
+  const { data: configsData }                     = useBackupConfigs(id)
 
-  const startDb   = useStartDatabase()
-  const stopDb    = useStopDatabase()
-  const restart   = useRestartDatabase()
-  const deleteDb  = useDeleteDatabase()
-  const createBkp = useCreateBackup()
-  const triggerBkp = useTriggerBackup()
-  const testS3    = useTestS3()
+  const startDb     = useStartDatabase()
+  const stopDb      = useStopDatabase()
+  const restart     = useRestartDatabase()
+  const deleteDb    = useDeleteDatabase()
+  const createConf  = useCreateBackupConfig()
+  const testS3Mut   = useTestS3()
 
   const db      = data?.data
   const stats   = statsData?.data
   const logs    = logsData?.data?.logs ?? ''
-  const backups = backupsData?.data ?? []
+  const configs = configsData?.data ?? []
 
   function copy(text, key) {
     navigator.clipboard.writeText(text)
@@ -73,15 +221,15 @@ export default function DatabaseDetailPage() {
 
   async function handleAction(action) {
     const confirmed = action === 'delete'
-      ? window.confirm(`Delete "${db.name}"? All data will be destroyed.`)
+      ? window.confirm(`Delete "${db.name}"? The container and all data will be permanently removed.`)
       : true
     if (!confirmed) return
 
     try {
-      if (action === 'start')  { await startDb.mutateAsync(id); toast.success('Started') }
-      if (action === 'stop')   { await stopDb.mutateAsync(id);  toast.success('Stopped') }
-      if (action === 'restart'){ await restart.mutateAsync(id); toast.success('Restarted') }
-      if (action === 'delete') {
+      if (action === 'start')   { await startDb.mutateAsync(id);  toast.success('Started') }
+      if (action === 'stop')    { await stopDb.mutateAsync(id);   toast.success('Stopped') }
+      if (action === 'restart') { await restart.mutateAsync(id);  toast.success('Restarted') }
+      if (action === 'delete')  {
         await deleteDb.mutateAsync(id)
         toast.success('Deleted')
         navigate('/databases')
@@ -93,7 +241,7 @@ export default function DatabaseDetailPage() {
 
   async function handleTestS3() {
     try {
-      const res = await testS3.mutateAsync({ databaseId: id, ...backupForm })
+      const res = await testS3Mut.mutateAsync({ databaseId: id, ...backupForm })
       if (res.success) toast.success('S3 connection successful ✓')
       else toast.error(res.message)
     } catch (err) {
@@ -101,22 +249,23 @@ export default function DatabaseDetailPage() {
     }
   }
 
-  async function handleCreateBackup() {
+  async function handleCreateBackupConfig() {
     try {
-      await createBkp.mutateAsync({ databaseId: id, ...backupForm })
-      toast.success('Backup started!')
+      await createConf.mutateAsync({ databaseId: id, ...backupForm })
+      toast.success(backupForm.triggerNow ? 'Backup config saved and run started!' : 'Backup config saved!')
       setShowBackupForm(false)
+      setBackupForm(BLANK_FORM)
     } catch (err) {
-      toast.error(err?.response?.data?.error ?? 'Failed to create backup')
+      toast.error(err?.response?.data?.error ?? 'Failed to save backup config')
     }
   }
 
   if (isLoading) return <div className={styles.loading}>Loading…</div>
-  if (!db) return <div className={styles.loading}>Database not found.</div>
+  if (!db)       return <div className={styles.loading}>Database not found.</div>
 
-  // Build both connection strings
   const extConn = db.connectionString
   const intConn = db.connectionString?.replace(db.server?.ip, 'localhost')
+  const dbRunning = db.status === 'RUNNING'
 
   return (
     <div className={styles.page}>
@@ -136,7 +285,7 @@ export default function DatabaseDetailPage() {
           {db.status === 'STOPPED' && (
             <button className={`${styles.action} ${styles.start}`} onClick={() => handleAction('start')}>▶ Start</button>
           )}
-          {db.status === 'RUNNING' && (
+          {dbRunning && (
             <>
               <button className={`${styles.action} ${styles.stop}`} onClick={() => handleAction('stop')}>■ Stop</button>
               <button className={styles.action} onClick={() => handleAction('restart')}>↺ Restart</button>
@@ -184,6 +333,9 @@ export default function DatabaseDetailPage() {
             onClick={() => setActiveTab(tab)}
           >
             {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {tab === 'backups' && configs.length > 0 && (
+              <span className={styles.tabBadge}>{configs.length}</span>
+            )}
           </button>
         ))}
       </div>
@@ -192,57 +344,36 @@ export default function DatabaseDetailPage() {
       {activeTab === 'overview' && (
         <div className={styles.tabContent}>
           <div className={styles.statsGrid}>
-            <div className={styles.statCard}>
-              <div className={styles.statLabel}>CPU</div>
-              <div className={styles.statValue}>{stats?.cpuPercent ?? '—'}</div>
-            </div>
-            <div className={styles.statCard}>
-              <div className={styles.statLabel}>Memory</div>
-              <div className={styles.statValue}>{stats?.memUsage ?? '—'}</div>
-            </div>
-            <div className={styles.statCard}>
-              <div className={styles.statLabel}>Mem %</div>
-              <div className={styles.statValue}>{stats?.memPercent ?? '—'}</div>
-            </div>
-            <div className={styles.statCard}>
-              <div className={styles.statLabel}>Network I/O</div>
-              <div className={styles.statValue}>{stats?.netIO ?? '—'}</div>
-            </div>
-            <div className={styles.statCard}>
-              <div className={styles.statLabel}>Block I/O</div>
-              <div className={styles.statValue}>{stats?.blockIO ?? '—'}</div>
-            </div>
-            <div className={styles.statCard}>
-              <div className={styles.statLabel}>PIDs</div>
-              <div className={styles.statValue}>{stats?.pids ?? '—'}</div>
-            </div>
+            {[
+              { label: 'CPU',        value: stats?.cpuPercent },
+              { label: 'Memory',     value: stats?.memUsage   },
+              { label: 'Mem %',      value: stats?.memPercent },
+              { label: 'Network I/O',value: stats?.netIO      },
+              { label: 'Block I/O',  value: stats?.blockIO    },
+              { label: 'PIDs',       value: stats?.pids       },
+            ].map(({ label, value }) => (
+              <div key={label} className={styles.statCard}>
+                <div className={styles.statLabel}>{label}</div>
+                <div className={styles.statValue}>{value ?? '—'}</div>
+              </div>
+            ))}
           </div>
 
           <div className={styles.infoTable}>
-            <div className={styles.infoRow}>
-              <span>Container ID</span>
-              <code>{db.containerId ?? '—'}</code>
-            </div>
-            <div className={styles.infoRow}>
-              <span>Container Name</span>
-              <code>{db.containerName ?? '—'}</code>
-            </div>
-            <div className={styles.infoRow}>
-              <span>Internal Port</span>
-              <code>{db.internalPort ?? '—'}</code>
-            </div>
-            <div className={styles.infoRow}>
-              <span>Public Port</span>
-              <code>{db.publicPort ?? '—'}</code>
-            </div>
-            <div className={styles.infoRow}>
-              <span>Database Name</span>
-              <code>{db.dbName ?? '—'}</code>
-            </div>
-            <div className={styles.infoRow}>
-              <span>Database User</span>
-              <code>{db.dbUser ?? '—'}</code>
-            </div>
+            {[
+              { label: 'Container ID',   value: db.containerId   },
+              { label: 'Container Name', value: db.containerName },
+              { label: 'Volume Name',    value: db.volumeName    },
+              { label: 'Internal Port',  value: db.internalPort  },
+              { label: 'Public Port',    value: db.publicPort    },
+              { label: 'Database Name',  value: db.dbName        },
+              { label: 'Database User',  value: db.dbUser        },
+            ].map(({ label, value }) => (
+              <div key={label} className={styles.infoRow}>
+                <span>{label}</span>
+                <code>{value ?? '—'}</code>
+              </div>
+            ))}
             <div className={styles.infoRow}>
               <span>Created</span>
               <span>{new Date(db.createdAt).toLocaleString()}</span>
@@ -266,24 +397,28 @@ export default function DatabaseDetailPage() {
       {activeTab === 'backups' && (
         <div className={styles.tabContent}>
           <div className={styles.backupsHeader}>
-            <span className={styles.sectionTitle}>Backups</span>
-            <button className={styles.addBackupBtn} onClick={() => setShowBackupForm(v => !v)}>
-              {showBackupForm ? 'Cancel' : '+ Configure Backup'}
+            <span className={styles.sectionTitle}>Backup Configurations</span>
+            <button
+              className={styles.addBackupBtn}
+              onClick={() => setShowBackupForm(v => !v)}
+            >
+              {showBackupForm ? 'Cancel' : '+ Add Backup'}
             </button>
           </div>
 
+          {/* New backup config form */}
           {showBackupForm && (
             <div className={styles.backupForm}>
-              <h3>Backup Configuration</h3>
+              <h3>New Backup Configuration</h3>
               <p className={styles.backupNote}>
-                Works with any S3-compatible storage: AWS S3, Google Cloud Storage (GCS), Cloudflare R2, MinIO, etc.
+                Compatible with AWS S3, Google Cloud Storage, Cloudflare R2, MinIO, and any S3-compatible storage.
               </p>
 
               <div className={styles.formGrid}>
                 <div className={styles.field}>
                   <label>S3 Endpoint URL <span className={styles.optional}>(leave blank for AWS)</span></label>
                   <input
-                    placeholder="https://storage.googleapis.com (GCS) or https://xxx.r2.cloudflarestorage.com"
+                    placeholder="https://storage.googleapis.com"
                     value={backupForm.s3Endpoint}
                     onChange={e => setBackupForm(f => ({ ...f, s3Endpoint: e.target.value }))}
                   />
@@ -313,7 +448,7 @@ export default function DatabaseDetailPage() {
                   />
                 </div>
                 <div className={styles.field}>
-                  <label>Region <span className={styles.optional}>(default: auto)</span></label>
+                  <label>Region <span className={styles.optional}>(default: us-east-1)</span></label>
                   <input
                     placeholder="us-east-1"
                     value={backupForm.s3Region}
@@ -321,7 +456,7 @@ export default function DatabaseDetailPage() {
                   />
                 </div>
                 <div className={styles.field}>
-                  <label>Path Prefix <span className={styles.optional}>(optional)</span></label>
+                  <label>Path Prefix <span className={styles.optional}>(folder in bucket)</span></label>
                   <input
                     placeholder={db.name}
                     value={backupForm.s3Path}
@@ -337,7 +472,7 @@ export default function DatabaseDetailPage() {
                     <button
                       key={p.cron}
                       className={`${styles.preset} ${backupForm.schedule === p.cron ? styles.activePreset : ''}`}
-                      onClick={() => setBackupForm(f => ({ ...f, schedule: p.cron }))}
+                      onClick={() => setBackupForm(f => ({ ...f, schedule: f.schedule === p.cron ? '' : p.cron }))}
                     >
                       {p.label}
                     </button>
@@ -356,45 +491,42 @@ export default function DatabaseDetailPage() {
                   checked={backupForm.triggerNow}
                   onChange={e => setBackupForm(f => ({ ...f, triggerNow: e.target.checked }))}
                 />
-                Run backup immediately
+                Run a backup immediately after saving
               </label>
 
               <div className={styles.backupActions}>
-                <button className={styles.testBtn} onClick={handleTestS3} disabled={testS3.isPending}>
-                  {testS3.isPending ? 'Testing…' : '🔍 Test Connection'}
+                <button
+                  className={styles.testBtn}
+                  onClick={handleTestS3}
+                  disabled={testS3Mut.isPending}
+                >
+                  {testS3Mut.isPending ? 'Testing…' : '🔍 Test S3 Connection'}
                 </button>
-                <button className={styles.saveBtn} onClick={handleCreateBackup} disabled={createBkp.isPending}>
-                  {createBkp.isPending ? 'Saving…' : '💾 Save & Run'}
+                <button
+                  className={styles.saveBtn}
+                  onClick={handleCreateBackupConfig}
+                  disabled={createConf.isPending}
+                >
+                  {createConf.isPending ? 'Saving…' : '💾 Save Configuration'}
                 </button>
               </div>
             </div>
           )}
 
-          {backups.length === 0 ? (
-            <div className={styles.noBackups}>No backups yet. Configure one above.</div>
+          {/* Existing backup configs */}
+          {configs.length === 0 ? (
+            <div className={styles.noBackups}>
+              No backup configurations yet. Click "+ Add Backup" to set one up.
+            </div>
           ) : (
-            <div className={styles.backupsList}>
-              {backups.map(bkp => (
-                <div key={bkp.id} className={styles.backupRow}>
-                  <div className={styles.backupInfo}>
-                    <span className={`${styles.backupStatus} ${styles[bkp.status.toLowerCase()]}`}>
-                      {bkp.status}
-                    </span>
-                    <span className={styles.backupPath}>{bkp.s3Path ?? '—'}</span>
-                    <span className={styles.backupSize}>
-                      {bkp.sizeBytes ? `${(Number(bkp.sizeBytes) / 1024 / 1024).toFixed(1)} MB` : ''}
-                    </span>
-                    <span className={styles.backupDate}>
-                      {new Date(bkp.updatedAt).toLocaleString()}
-                    </span>
-                  </div>
-                  <button
-                    className={styles.runBackupBtn}
-                    onClick={() => triggerBkp.mutateAsync(bkp.id).then(() => toast.success('Backup started'))}
-                  >
-                    ▶ Run
-                  </button>
-                </div>
+            <div className={styles.configsList}>
+              {configs.map(cfg => (
+                <BackupConfigCard
+                  key={cfg.id}
+                  config={cfg}
+                  databaseId={id}
+                  dbRunning={dbRunning}
+                />
               ))}
             </div>
           )}

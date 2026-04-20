@@ -492,3 +492,233 @@
   transition: background 0.15s;
 }
 .runBackupBtn:hover { background: var(--border); }
+
+/* ── Tab badge ── */
+
+.tabBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.3rem;
+  margin-left: 0.4rem;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 99px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+/* ── Backup config cards ── */
+
+.configsList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.configCard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+}
+
+.configCardHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.configInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.configBucket {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.configPath {
+  font-size: 0.75rem;
+  font-family: 'Courier New', monospace;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.configSchedule {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.configActions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.runBtn {
+  padding: 0.3rem 0.7rem;
+  background: var(--accent);
+  border: none;
+  border-radius: 5px;
+  color: #fff;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.runBtn:hover { opacity: 0.85; }
+.runBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.historyBtn {
+  padding: 0.3rem 0.7rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.historyBtn:hover { background: var(--border); }
+
+.deleteConfigBtn {
+  padding: 0.3rem 0.5rem;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.deleteConfigBtn:hover { border-color: #ef4444; color: #ef4444; background: rgba(239,68,68,0.08); }
+.deleteConfigBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Latest execution summary ── */
+
+.latestExec {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.78rem;
+  flex-wrap: wrap;
+}
+
+.latestLabel {
+  color: var(--text-muted);
+}
+
+/* ── Execution status badge (shared by latestExec + executionRow) ── */
+
+.execStatus {
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.67rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.pending  { background: rgba(99,102,241,0.15); color: #818cf8; }
+.running  { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.success  { background: rgba(34,197,94,0.15); color: #22c55e; }
+.failed   { background: rgba(239,68,68,0.15); color: #ef4444; }
+
+.execKey {
+  font-size: 0.75rem;
+  font-family: 'Courier New', monospace;
+  color: var(--text-secondary);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.execSize {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.execDate {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  margin-left: auto;
+}
+
+.execError {
+  font-size: 0.72rem;
+  color: #ef4444;
+  width: 100%;
+  margin-top: 0.2rem;
+  font-family: 'Courier New', monospace;
+  word-break: break-all;
+}
+
+/* ── Execution history panel ── */
+
+.executionPanel {
+  margin-top: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.executionPanelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.closeHistoryBtn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  transition: color 0.15s;
+}
+.closeHistoryBtn:hover { color: var(--text-primary); }
+
+.executionList {
+  display: flex;
+  flex-direction: column;
+}
+
+.executionRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.78rem;
+  flex-wrap: wrap;
+}
+.executionRow:last-child { border-bottom: none; }
+
+.executionLoading,
+.executionEmpty {
+  padding: 1rem 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-align: center;
+}

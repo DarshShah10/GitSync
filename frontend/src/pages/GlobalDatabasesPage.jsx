@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   useDatabases,
   useStartDatabase,
@@ -12,7 +12,8 @@ import { getServers } from '../services/servers.js'
 import AddDatabaseModal from '../components/AddDatabaseModal.jsx'
 import StatusBadge from '../components/StatusBadge.jsx'
 import toast from 'react-hot-toast'
-import styles from './DatabasesPage.module.css'
+import { Server, Trash2, Play, Square, RotateCcw, Copy, Check, Database as DbIcon, Plus } from 'lucide-react'
+import styles from './GlobalDatabasesPage.module.css'
 
 const DB_ICONS = {
   MONGODB:    '🍃',
@@ -25,10 +26,11 @@ const DB_ICONS = {
   CLICKHOUSE: '📊',
 }
 
-export default function DatabasesPage() {
+export default function GlobalDatabasesPage() {
   const [showAdd, setShowAdd] = useState(false)
   const [filterServer, setFilterServer] = useState('')
   const [copiedId, setCopiedId] = useState(null)
+  const navigate = useNavigate()
 
   const { data: dbData, isLoading } = useDatabases(filterServer || undefined)
   const { data: serverData } = useQuery({ queryKey: ['servers'], queryFn: getServers })
@@ -69,14 +71,16 @@ export default function DatabasesPage() {
 
   return (
     <div className={styles.page}>
-      <div className={styles.toolbar}>
-        <div className={styles.toolbarLeft}>
-          <h1>Databases</h1>
-          <span className={styles.count}>{databases.length}</span>
+      <div className={styles.header}>
+        <div>
+          <h2 className={styles.title}>Databases</h2>
+          <p className={styles.subtitle}>
+            Showing {databases.length} database{databases.length !== 1 ? 's' : ''} across all servers.
+          </p>
         </div>
-        <div className={styles.toolbarRight}>
+        <div className={styles.headerRight}>
           <select
-            className={styles.filter}
+            className={styles.filterSelect}
             value={filterServer}
             onChange={e => setFilterServer(e.target.value)}
           >
@@ -86,18 +90,24 @@ export default function DatabasesPage() {
             ))}
           </select>
           <button className={styles.addBtn} onClick={() => setShowAdd(true)}>
-            + New Database
+            <Plus size={18} /> New Database
           </button>
         </div>
       </div>
 
       {isLoading ? (
-        <div className={styles.empty}>Loading…</div>
+        <div className={styles.state}>
+          <div className={styles.spinner} />
+          <p style={{ color: 'var(--text-secondary)' }}>Loading databases…</p>
+        </div>
       ) : databases.length === 0 ? (
-        <div className={styles.emptyState}>
-          <p className={styles.emptyIcon}>🗄️</p>
-          <p>No databases yet.</p>
-          <p className={styles.emptyHint}>Click "New Database" to provision your first database.</p>
+        <div className={styles.state}>
+          <div className={styles.emptyIcon}><DbIcon size={32} /></div>
+          <div className={styles.emptyTitle}>No databases yet</div>
+          <div className={styles.emptySub}>Click "New Database" to provision your first database.</div>
+          <button className={styles.addBtn} onClick={() => setShowAdd(true)}>
+            <Plus size={18} /> Connect First Database
+          </button>
         </div>
       ) : (
         <div className={styles.grid}>
@@ -105,7 +115,9 @@ export default function DatabasesPage() {
             <div key={db.id} className={styles.card}>
               <div className={styles.cardHeader}>
                 <div className={styles.cardTitle}>
-                  <span className={styles.dbIcon}>{DB_ICONS[db.type] ?? '🗄️'}</span>
+                  <div className={styles.dbIcon}>
+                    {DB_ICONS[db.type] ?? <DbIcon size={24} />}
+                  </div>
                   <div>
                     <Link to={`/databases/${db.id}`} className={styles.dbName}>
                       {db.name}
@@ -116,58 +128,60 @@ export default function DatabasesPage() {
                 <StatusBadge status={db.status} />
               </div>
 
-              <div className={styles.cardMeta}>
+              {db.connectionString && (
+                <div 
+                  className={styles.connectionString} 
+                  onClick={() => copyConnectionString(db)}
+                  title="Click to copy connection string"
+                >
+                  <code className={styles.connText}>
+                    {db.connectionString.replace(/:[^@]+@/, ':****@')}
+                  </code>
+                  {copiedId === db.id ? <Check className={styles.connIcon} size={16} color="var(--success)"/> : <Copy className={styles.connIcon} size={16}/>}
+                </div>
+              )}
+
+              <div className={styles.metaGrid}>
                 <div className={styles.metaRow}>
                   <span className={styles.metaLabel}>Server</span>
-                  <span className={styles.metaValue}>{db.server?.name ?? '—'}</span>
+                  <span className={styles.metaValue}><Server size={14} color="var(--text-muted)"/> {db.server?.name ?? '—'}</span>
                 </div>
                 <div className={styles.metaRow}>
                   <span className={styles.metaLabel}>Port</span>
                   <span className={styles.metaValue}>{db.publicPort ?? '—'}</span>
                 </div>
-                {db._count?.backupConfigs !== undefined && (
-                  <div className={styles.metaRow}>
-                    <span className={styles.metaLabel}>Backups</span>
-                    <span className={styles.metaValue}>{db._count.backupConfigs}</span>
-                  </div>
-                )}
               </div>
 
-              {db.connectionString && (
-                <button
-                  className={`${styles.connString} ${copiedId === db.id ? styles.copied : ''}`}
-                  onClick={() => copyConnectionString(db)}
-                  title="Click to copy connection string"
-                >
-                  <span className={styles.connIcon}>{copiedId === db.id ? '✓' : '📋'}</span>
-                  <code className={styles.connText}>
-                    {db.connectionString.replace(/:[^@]+@/, ':****@')}
-                  </code>
-                </button>
-              )}
-
               {db.status === 'CREATING' && (
-                <div className={styles.creating}>
-                  <span className={styles.spinner} /> Provisioning database…
+                <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '16px' }}>
+                  <span className={styles.spinner} style={{width: 16, height: 16, display: 'inline-block', verticalAlign: 'middle'}}/> Provisioning...
                 </div>
               )}
 
-              <div className={styles.cardActions}>
+              <div className={styles.actions}>
                 {db.status === 'STOPPED' && (
-                  <button onClick={() => handleAction('start', db)} className={styles.actionBtn}>▶ Start</button>
+                  <button onClick={() => handleAction('start', db)} className={styles.actionBtn}>
+                    <Play size={14} /> Start
+                  </button>
                 )}
                 {db.status === 'RUNNING' && (
                   <>
-                    <button onClick={() => handleAction('stop', db)} className={`${styles.actionBtn} ${styles.stop}`}>■ Stop</button>
-                    <button onClick={() => handleAction('restart', db)} className={styles.actionBtn}>↺ Restart</button>
-                    <Link to={`/databases/${db.id}`} className={styles.actionBtn}>📊 Monitor</Link>
+                    <button onClick={() => handleAction('stop', db)} className={styles.actionBtn}>
+                      <Square size={14} /> Stop
+                    </button>
+                    <button onClick={() => handleAction('restart', db)} className={styles.actionBtn}>
+                      <RotateCcw size={14} /> Restart
+                    </button>
                   </>
                 )}
+                
+                <div style={{ flex: 1 }} />
+                
                 <button
                   onClick={() => handleAction('delete', db)}
                   className={`${styles.actionBtn} ${styles.danger}`}
                 >
-                  🗑 Delete
+                  <Trash2 size={14} color="var(--danger)" />
                 </button>
               </div>
             </div>

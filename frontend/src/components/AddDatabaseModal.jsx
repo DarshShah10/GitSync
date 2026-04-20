@@ -99,12 +99,12 @@ export default function AddDatabaseModal({ servers, onClose }) {
             <div className={styles.field}>
               <label>Server</label>
               <select name="serverId" value={form.serverId} onChange={handleChange} required>
-                {servers?.filter(s => s.status === 'READY').map(s => (
+                {servers?.filter(s => s.status === 'CONNECTED' || s.status === 'READY').map(s => (
                   <option key={s.id} value={s.id}>{s.name} ({s.ip})</option>
                 ))}
               </select>
-              {servers?.filter(s => s.status === 'READY').length === 0 && (
-                <p className={styles.warn}>No READY servers. Add and verify a server first.</p>
+              {servers?.filter(s => s.status === 'CONNECTED' || s.status === 'READY').length === 0 && (
+                <p className={styles.warn}>No connected servers. Add and verify a server first.</p>
               )}
             </div>
 
@@ -163,7 +163,7 @@ export default function AddDatabaseModal({ servers, onClose }) {
               <button
                 type="submit"
                 className={styles.submit}
-                disabled={create.isPending || servers?.filter(s => s.status === 'READY').length === 0}
+                disabled={create.isPending || servers?.filter(s => s.status === 'CONNECTED' || s.status === 'READY').length === 0}
               >
                 {create.isPending ? 'Creating…' : 'Create Database'}
               </button>
