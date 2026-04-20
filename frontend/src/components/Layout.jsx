@@ -1,12 +1,10 @@
-import { Outlet, NavLink } from 'react-router-dom'
-import { Server, Database, LayoutDashboard, Settings, Zap } from 'lucide-react'
+import { NavLink, Outlet } from 'react-router-dom'
 import styles from './Layout.module.css'
 
-const NAV = [
-  { to: '/',          icon: LayoutDashboard, label: 'Overview'  },
-  { to: '/servers',   icon: Server,          label: 'Servers'   },
-  { to: '/databases', icon: Database,        label: 'Databases' },
-  { to: '/settings',  icon: Settings,        label: 'Settings'  },
+const NAV_ITEMS = [
+  { to: '/',          label: 'Overview',  icon: '◎' },
+  { to: '/servers',   label: 'Servers',   icon: '🖥️' },
+  { to: '/databases', label: 'Databases', icon: '🗄️' },
 ]
 
 export default function Layout() {
@@ -14,12 +12,12 @@ export default function Layout() {
     <div className={styles.shell}>
       <aside className={styles.sidebar}>
         <div className={styles.logo}>
-          <div className={styles.logoMark}><Zap size={14} /></div>
-          <span className={styles.logoText}>DBShift</span>
+          <span className={styles.logoMark}>DB</span>
+          <span className={styles.logoText}>Shift</span>
         </div>
 
         <nav className={styles.nav}>
-          {NAV.map(({ to, icon: Icon, label }) => (
+          {NAV_ITEMS.map(({ to, label, icon }) => (
             <NavLink
               key={to}
               to={to}
@@ -28,14 +26,14 @@ export default function Layout() {
                 `${styles.navItem} ${isActive ? styles.active : ''}`
               }
             >
-              <Icon size={16} strokeWidth={1.75} />
+              <span className={styles.navIcon}>{icon}</span>
               <span>{label}</span>
             </NavLink>
           ))}
         </nav>
 
         <div className={styles.sidebarFooter}>
-          <span className={styles.version}>v1.0.0 — Phase 1</span>
+          <span className={styles.version}>v2.0.0</span>
         </div>
       </aside>
 

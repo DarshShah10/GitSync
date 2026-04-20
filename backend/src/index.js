@@ -7,6 +7,7 @@ import { config } from './config/index.js'
 import { registerErrorHandler } from './middleware/errorHandler.js'
 import { healthRoutes } from './routes/health.js'
 import { serverRoutes } from './routes/servers.js'
+import { databaseRoutes } from './routes/databases.js'   // ← Phase 2
 import { startAllWorkers, stopAllWorkers } from './jobs/workers.js'
 
 export async function buildApp() {
@@ -50,10 +51,11 @@ export async function buildApp() {
 
   await app.register(healthRoutes)
   await app.register(serverRoutes)
+  await app.register(databaseRoutes)   // ← Phase 2
 
   app.get('/', async () => ({
     name: 'DBShift API',
-    version: '1.0.0',
+    version: '2.0.0',
     docs: '/health',
   }))
 

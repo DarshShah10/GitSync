@@ -1,11 +1,10 @@
 import { startServerVerifyWorker } from './server-verify.job.js'
+import { startDatabaseCreateWorker } from './database-create.job.js'
+import { startBackupWorker } from './backup-run.job.js'
 
 /**
  * Starts all background job workers.
  * Called once from src/index.js at app startup.
- *
- * Returns an array of worker instances so they can be
- * gracefully shut down on SIGTERM/SIGINT.
  *
  * @returns {import('bullmq').Worker[]}
  */
@@ -14,8 +13,8 @@ export function startAllWorkers() {
 
   const workers = [
     startServerVerifyWorker(),
-    // Phase 2: startDatabaseCreateWorker(),
-    // Phase 4: startBackupWorker(),
+    startDatabaseCreateWorker(),
+    startBackupWorker(),
   ]
 
   console.log(`[workers] ${workers.length} worker(s) running.`)
@@ -24,7 +23,6 @@ export function startAllWorkers() {
 
 /**
  * Gracefully shuts down all workers.
- * Waits for in-progress jobs to finish before closing.
  *
  * @param {import('bullmq').Worker[]} workers
  */
