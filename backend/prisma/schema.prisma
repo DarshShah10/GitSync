@@ -1,6 +1,6 @@
 // ============================================================
-// Prisma Schema — Coolify-like Deployment Platform
-// Database: PostgreSQL  |  v4 — clean, no redundant models
+// DBShift Platform — Master Schema
+// PostgreSQL | SaaS platform + battle-tested infra engine
 // ============================================================
 
 generator client {
@@ -28,10 +28,12 @@ enum TeamRole {
 }
 
 enum ServerStatus {
-  CONNECTED
-  UNREACHABLE
-  PENDING
-  MAINTENANCE
+  PENDING       // just added, not yet verified
+  VERIFYING     // SSH connection test in progress
+  CONNECTED     // reachable and Docker confirmed
+  UNREACHABLE   // last health check failed
+  MAINTENANCE   // manually paused
+  ERROR         // permanent failure
 }
 
 enum OsType {
@@ -44,24 +46,37 @@ enum OsType {
   OTHER
 }
 
-// DATABASE is just another service type — runs as a Docker
-// container on a server, lives inside a project environment.
-// No separate Database model needed.
+// All deployable containers — apps AND databases are services.
+// Database-specific fields live in config JSONB + typed infra columns.
 enum ServiceType {
   APP
-  DATABASE   // e.g. postgres, mysql, redis, mongo — config JSONB holds db-specific fields
+  DATABASE        // postgres, mysql, redis, mongo, etc.
   STATIC
   DOCKER_COMPOSE
   WORKER
 }
 
 enum ServiceStatus {
+  CREATING      // being provisioned for the first time (replaces old DatabaseStatus.CREATING)
   RUNNING
   STOPPED
   ERROR
   DEPLOYING
   BUILDING
   RESTARTING
+}
+
+// Database engine — stored in Service.config.dbType JSON field.
+// Kept as a native enum so the app layer can validate and switch on it.
+enum DatabaseEngine {
+  POSTGRESQL
+  MYSQL
+  MARIADB
+  MONGODB
+  REDIS
+  KEYDB
+  DRAGONFLY
+  CLICKHOUSE
 }
 
 enum EnvVarScope {
@@ -138,7 +153,6 @@ model Team {
   @@map("teams")
 }
 
-// OWNER is assigned when the team is created.
 // App layer must enforce: exactly one OWNER per team, OWNER cannot leave.
 model TeamMember {
   id       String   @id @default(uuid())
@@ -157,35 +171,30 @@ model TeamMember {
 // ============================================================
 // SERVER
 //
-// usedPorts (JSONB) tracks every port on this VM dynamically.
-// Updated whenever a service starts or stops.
+// usedPorts (JSONB) tracks every port allocated on this VM.
+// Updated whenever a service is provisioned or destroyed.
+// Shape: [{ port: number, serviceId: string|null, status: "in_use"|"reserved" }]
 //
-// Shape of each element:
-//   {
-//     port:      number,
-//     process:   string,           // e.g. "nginx", "postgres"
-//     serviceId: string | null,    // FK to Service.id
-//     status:    "in_use" | "reserved" | "free"
-//   }
-//
-// ServerCredential is a separate 1-to-1 table on purpose —
-// list/dashboard queries on Server never touch SSH keys or
-// passwords. Only the SSH connection handler loads it.
+// Credentials are in a separate 1-to-1 table so list/dashboard
+// queries on Server never touch SSH keys or passwords.
 // ============================================================
 
 model Server {
-  id         String       @id @default(uuid())
-  userId     String       @map("user_id")
-  teamId     String?      @map("team_id")
-  name       String
-  ipAddress  String       @map("ip_address")
-  sshPort    Int          @default(22) @map("ssh_port")
-  osType     OsType       @default(OTHER) @map("os_type")
-  status     ServerStatus @default(PENDING)
-  lastPingAt DateTime?    @map("last_ping_at")
-  usedPorts  Json         @default("[]") @map("used_ports")
-  createdAt  DateTime     @default(now()) @map("created_at")
-  updatedAt  DateTime     @updatedAt @map("updated_at")
+  id            String       @id @default(uuid())
+  userId        String       @map("user_id")
+  teamId        String?      @map("team_id")
+  name          String
+  ip            String
+  sshPort       Int          @default(22) @map("ssh_port")
+  osType        OsType       @default(OTHER) @map("os_type")
+  status        ServerStatus @default(PENDING)
+  dockerVersion String?      @map("docker_version")
+  lastCheckedAt DateTime?    @map("last_checked_at")  // updated by 60s BullMQ job
+  errorMessage  String?      @map("error_message")
+  // port registry — prevents double-allocation when multiple databases provision at once
+  usedPorts     Json         @default("[]") @map("used_ports")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
 
   user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   team       Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
@@ -199,12 +208,12 @@ model Server {
 }
 
 // Loaded only when opening an SSH connection — never in list queries.
-// Encrypt sshPrivateKey and sshPassword at the app layer (AES-256).
+// sshPrivateKey and sshPassword MUST be encrypted at the app layer (AES-256-GCM).
 model ServerCredential {
   id            String   @id @default(uuid())
   serverId      String   @unique @map("server_id")
   authType      AuthType @map("auth_type")
-  sshUsername   String   @map("ssh_username")
+  sshUsername   String   @default("root") @map("ssh_username")
   sshPrivateKey String?  @map("ssh_private_key") // set when authType = SSH_KEY
   sshPassword   String?  @map("ssh_password")    // set when authType = PASSWORD
   createdAt     DateTime @default(now()) @map("created_at")
@@ -216,12 +225,12 @@ model ServerCredential {
 }
 
 // ============================================================
-// PROJECT -> ENVIRONMENT -> SERVICE
+// PROJECT → ENVIRONMENT → SERVICE
 //
-// Project     = the product / repo grouping
-// Environment = named slot inside the project (prod, staging, dev)
-// Service     = anything that runs: app, worker, static site,
-//               OR a database container — they are all services.
+// Project     = product / repo grouping (owned by user or team)
+// Environment = named slot: prod, staging, dev, etc.
+// Service     = anything deployable: app, worker, static, OR a
+//               database container — all are Services.
 // ============================================================
 
 model Project {
@@ -238,6 +247,7 @@ model Project {
   environments Environment[]
 
   @@index([userId])
+  @@index([teamId])
   @@map("projects")
 }
 
@@ -253,92 +263,101 @@ model Environment {
   services Service[]
 
   @@unique([projectId, slug])
+  @@index([projectId])
   @@map("environments")
 }
 
 // ============================================================
 // SERVICE
 //
-// A Service is anything deployable — including databases.
-// Source-specific and type-specific config lives in the `config`
-// JSONB field so the table stays lean regardless of service type.
+// Unified model for every deployable resource.
 //
-// config examples by ServiceType:
+// WHY typed infra columns instead of pure JSONB:
+//   containerId / containerName / volumeName are read on EVERY
+//   start / stop / restart / health-check call by the deployment
+//   engine. Parsing JSONB on each call adds overhead and loses
+//   Prisma type-safety. These stay as typed columns.
 //
-//   APP (git source):
-//   {
-//     "gitRepoUrl": "https://github.com/org/repo",
-//     "branch": "main",
-//     "buildPack": "NIXPACKS",
-//     "dockerfilePath": null,
-//     "buildArgs": {}
-//   }
+//   connectionString is shown on every dashboard load. Keep it
+//   as a typed column (masked in API responses).
 //
-//   APP (docker image):
-//   {
-//     "dockerImage": "nginx:alpine",
-//     "registryUrl": null
-//   }
-//
-//   DOCKER_COMPOSE:
-//   {
-//     "composeFilePath": "./docker-compose.yml"
-//   }
+// type-specific `config` JSONB shapes:
 //
 //   DATABASE:
 //   {
-//     "dbType": "POSTGRESQL",        // POSTGRESQL | MYSQL | MARIADB | MONGODB | REDIS | etc.
-//     "dockerImage": "postgres:16",
-//     "dbUser": "myuser",
-//     "dbPassword": "<encrypted>",   // encrypt at app layer
-//     "dbName": "mydb",
-//     "connectionString": "<encrypted>"
+//     "dbEngine":       "POSTGRESQL",     ← DatabaseEngine enum value
+//     "dockerImage":    "postgres:16",
+//     "dbUser":         "myuser",
+//     "dbPassword":     "<AES-256-GCM>",  ← encrypted at app layer
+//     "dbName":         "mydb"
 //   }
 //
-// lastCommitHash + lastDeployedAt are denormalised here so the
-// dashboard never needs to JOIN into deployments.
+//   APP (git):
+//   { "gitRepoUrl": "...", "branch": "main", "buildPack": "NIXPACKS" }
+//
+//   APP (image):
+//   { "dockerImage": "nginx:alpine", "registryUrl": null }
+//
+//   DOCKER_COMPOSE:
+//   { "composeFilePath": "./docker-compose.yml" }
 // ============================================================
 
 model Service {
-  id             String        @id @default(uuid())
-  environmentId  String        @map("environment_id")
-  serverId       String        @map("server_id")
-  name           String
-  type           ServiceType
-  status         ServiceStatus @default(STOPPED)
+  id            String        @id @default(uuid())
+  environmentId String        @map("environment_id")
+  serverId      String        @map("server_id")
+  name          String
+  type          ServiceType
+  status        ServiceStatus @default(STOPPED)
 
-  // Networking
-  domain         String?
-  internalPort   Int?          @map("internal_port") // port inside the container
-  exposedPort    Int?          @map("exposed_port")  // port mapped on the host VM
+  // ── Docker infra (typed — read by engine on every infra call) ──
+  containerId   String?       @map("container_id")
+  containerName String?       @map("container_name")
+  volumeName    String?       @map("volume_name")     // named Docker volume; persists across container deletes
 
-  // All type-specific config in one JSONB field
-  config         Json          @default("{}")
+  // ── Networking ──
+  domain        String?
+  internalPort  Int?          @map("internal_port")   // port inside the container
+  exposedPort   Int?          @map("exposed_port")    // host-VM port (via socat TCP proxy)
+  isPublic      Boolean       @default(false) @map("is_public")
 
-  // Denormalised — updated on successful deploy, avoids joining Deployment
-  lastCommitHash String?       @map("last_commit_hash")
-  lastDeployedAt DateTime?     @map("last_deployed_at")
+  // Connection string stored here so dashboard never has to parse config JSONB.
+  // Always masked (:password → :****) in API responses.
+  connectionString String?    @map("connection_string")
 
-  createdAt      DateTime      @default(now()) @map("created_at")
-  updatedAt      DateTime      @updatedAt @map("updated_at")
+  // ── Type-specific config ──
+  config        Json          @default("{}")
+
+  // ── Denormalised deploy state — no join needed on dashboard ──
+  lastCommitHash  String?     @map("last_commit_hash")
+  lastDeployedAt  DateTime?   @map("last_deployed_at")
+
+  // ── Health monitoring — updated by 60s BullMQ server-check job ──
+  lastHealthCheckAt DateTime? @map("last_health_check_at")
+  errorMessage      String?   @map("error_message")
+
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
 
   environment    Environment     @relation(fields: [environmentId], references: [id], onDelete: Cascade)
   server         Server          @relation(fields: [serverId], references: [id], onDelete: Restrict)
   envVars        ServiceEnvVar[]
   deployments    Deployment[]
-  backupPolicies BackupPolicy[]  // only relevant when type = DATABASE
+  backupPolicies BackupPolicy[]  // populated only when type = DATABASE
 
   @@index([environmentId])
   @@index([serverId])
   @@index([status])
+  @@index([type])
   @@map("services")
 }
 
+// Secret values must be encrypted at app layer (AES-256-GCM).
 model ServiceEnvVar {
   id        String      @id @default(uuid())
   serviceId String      @map("service_id")
   key       String
-  value     String      // encrypt at app layer when isSecret = true
+  value     String      // encrypted when isSecret = true
   isSecret  Boolean     @default(false) @map("is_secret")
   scope     EnvVarScope @default(ALL)
   createdAt DateTime    @default(now()) @map("created_at")
@@ -347,15 +366,15 @@ model ServiceEnvVar {
   service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
 
   @@unique([serviceId, key])
+  @@index([serviceId])
   @@map("service_env_vars")
 }
 
 // ============================================================
 // DEPLOYMENTS
 //
-// Logs are split into DeploymentLog (one row per line) so you
-// can stream them to the UI in real time without loading a
-// massive text blob. isError separates stderr from stdout.
+// Logs use one row per line (not a TEXT blob) so they can be
+// streamed to the UI incrementally. isError separates stderr.
 // ============================================================
 
 model Deployment {
@@ -394,36 +413,35 @@ model DeploymentLog {
 // ============================================================
 // S3 BACKUP SYSTEM
 //
-// Only applies to services where type = DATABASE.
+// S3Credential  — reusable bucket config (owned by user or team).
+//                 accessKey + secretKey encrypted at app layer.
+//                 Shared across any number of backup policies.
 //
-//   S3Credential  — bucket config stored once, shared across
-//                   any number of backup policies.
-//                   accessKey + secretKey encrypted at app layer.
+// BackupPolicy  — "back up THIS service on THIS schedule to
+//                  THAT bucket." Holds schedule, retention, type.
+//                  schedule is nullable → manual-only policy.
+//                  s3PathPrefix overrides S3Credential.pathPrefix.
 //
-//   BackupPolicy  — "back up THIS database service on THIS
-//                   schedule to THAT S3 bucket."
-//                   Holds cron schedule, retention, backup type.
-//                   Points to a Service (type=DATABASE).
-//
-//   BackupRun     — one row per execution. Audit log of what
-//                   ran, when, how big, where the file landed.
-//                   Never stores credentials directly.
+// BackupRun     — one row per execution. Immutable audit log.
+//                 s3Key is the exact object path written.
+//                 updatedAt needed for BullMQ failed handler.
 // ============================================================
 
 // Works with AWS S3, Cloudflare R2, MinIO, Backblaze B2,
 // DigitalOcean Spaces — anything S3-compatible.
 model S3Credential {
-  id        String   @id @default(uuid())
-  userId    String?  @map("user_id") // null if team-owned
-  teamId    String?  @map("team_id") // null if user-owned
-  name      String                   // friendly label e.g. "R2 — production"
-  endpoint  String                   // e.g. https://xxx.r2.cloudflarestorage.com
-  bucket    String
-  region    String   @default("auto")
-  accessKey String   @map("access_key") // encrypt at app layer
-  secretKey String   @map("secret_key") // encrypt at app layer
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id         String   @id @default(uuid())
+  userId     String?  @map("user_id")  // null if team-owned
+  teamId     String?  @map("team_id")  // null if user-owned
+  name       String                    // friendly label e.g. "R2 — production"
+  endpoint   String?                   // null = AWS S3; set for R2/MinIO/GCS/etc.
+  bucket     String
+  region     String   @default("us-east-1")
+  pathPrefix String?  @map("path_prefix") // default folder prefix inside the bucket
+  accessKey  String   @map("access_key")  // encrypted at app layer
+  secretKey  String   @map("secret_key")  // encrypted at app layer
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
 
   user           User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
   team           Team?          @relation(fields: [teamId], references: [id], onDelete: Cascade)
@@ -434,18 +452,15 @@ model S3Credential {
   @@map("s3_credentials")
 }
 
-// schedule is a standard cron expression e.g. "0 2 * * *" = 2 AM daily.
-// retentionDays: BackupRuns older than this are pruned (0 = keep forever).
-// s3PathPrefix: folder inside the bucket e.g. "backups/prod-postgres/"
 model BackupPolicy {
   id             String     @id @default(uuid())
-  serviceId      String     @map("service_id")      // must be a Service with type = DATABASE
+  serviceId      String     @map("service_id")       // must be a Service with type = DATABASE
   s3CredentialId String     @map("s3_credential_id")
   isEnabled      Boolean    @default(true) @map("is_enabled")
-  schedule       String                              // cron expression
+  schedule       String?                              // cron expression; null = manual-only
   backupType     BackupType @default(FULL) @map("backup_type")
-  retentionDays  Int        @default(30) @map("retention_days")
-  s3PathPrefix   String?    @map("s3_path_prefix")
+  retentionDays  Int        @default(30) @map("retention_days") // 0 = keep forever
+  s3PathPrefix   String?    @map("s3_path_prefix")   // folder prefix — NEVER overwritten by runs
   createdAt      DateTime   @default(now()) @map("created_at")
   updatedAt      DateTime   @updatedAt @map("updated_at")
 
@@ -454,23 +469,23 @@ model BackupPolicy {
   runs         BackupRun[]
 
   @@index([serviceId])
+  @@index([s3CredentialId])
   @@map("backup_policies")
 }
 
-// One row per backup execution.
-// s3Key = final object path inside the bucket,
-// e.g. "backups/prod-postgres/2025-04-20T02-00-00.sql.gz"
+// One row per backup execution. Never mutated after completion (except status + error).
 model BackupRun {
   id             String          @id @default(uuid())
   backupPolicyId String          @map("backup_policy_id")
   status         BackupRunStatus @default(PENDING)
   backupType     BackupType      @map("backup_type")
-  s3Key          String?         @map("s3_key")
+  s3Key          String?         @map("s3_key")        // exact object key written; never null on SUCCESS
   sizeBytes      BigInt?         @map("size_bytes")
   errorMessage   String?         @map("error_message")
   startedAt      DateTime?       @map("started_at")
   completedAt    DateTime?       @map("completed_at")
   createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at") // required for BullMQ failed handler
 
   policy BackupPolicy @relation(fields: [backupPolicyId], references: [id], onDelete: Cascade)
 
@@ -484,7 +499,7 @@ model BackupRun {
 // API TOKENS
 //
 // Scoped to a user OR a team — app layer enforces one is set.
-// Only the hash is stored. Raw token shown once at creation.
+// Raw token shown once at creation; only the hash is stored.
 // ============================================================
 
 model ApiToken {
