@@ -31,7 +31,6 @@ export const createServerSchema = z.object({
     .trim()
     .default('root'),
 
-  // SSH_KEY = private key auth  |  PASSWORD = password auth
   authType: z
     .enum(['PASSWORD', 'SSH_KEY'])
     .default('SSH_KEY'),
@@ -72,10 +71,10 @@ export const createServerSchema = z.object({
 
 export const updateServerSchema = z.object({
   name:       z.string().min(1).max(64).trim().optional(),
-  port:       z.number().int().min(1).max(65535).optional(),
-  username:   z.string().min(1).max(64).trim().optional(),
-  authType:   z.enum(['PASSWORD', 'SSH_KEY']).optional(),
-  password:   z.string().min(1).trim().optional(),
+  port:      z.number().int().min(1).max(65535).optional(),
+  username:  z.string().min(1).max(64).trim().optional(),
+  authType:  z.enum(['PASSWORD', 'SSH_KEY']).optional(),
+  password:  z.string().min(1).trim().optional(),
   privateKey: z.string().min(1).trim().optional(),
 })
 

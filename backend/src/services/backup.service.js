@@ -1,18 +1,7 @@
 import { runCommand } from './ssh.service.js'
 
-/**
- * Backup tool configurations per database type.
- * Uses `docker exec` so no dump tools need to be installed on the host —
- * they're already inside the container image.
- */
 const BACKUP_TOOLS = {
   MONGODB: {
-    // Step 1: mongodump inside the container to /tmp (inside container)
-    // Step 2: docker cp pulls it out to /tmp on the HOST (absolute path required)
-    // The URI uses authSource=admin so root credentials always work
-    // mongodump runs INSIDE the container (has the tool), writes to container's /tmp,
-    // then docker cp extracts it to the host's /tmp.
-    // URI: always use 127.0.0.1:27017 inside container; URL-encode password to handle special chars.
     dumpCmd: (cfg) => {
       const encodedPass = encodeURIComponent(cfg.dbPassword)
       const encodedUser = encodeURIComponent(cfg.dbUser)
@@ -73,13 +62,6 @@ const BACKUP_TOOLS = {
     ext: '.zip',
   },
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// AWS CLI install
-// We pin to v2.13.0 specifically. v2.22+ sends CRC64NVME checksums by default
-// which GCS (and other S3-compatible providers) reject with SignatureDoesNotMatch.
-// v2.13.0 is stable, GCS-compatible, and supports all the flags we need.
-// ─────────────────────────────────────────────────────────────────────────────
 
 const PINNED_AWS_CLI_VERSION = '2.13.0'
 const PINNED_AWS_CLI_URL = `https://awscli.amazonaws.com/awscli-exe-linux-x86_64-${PINNED_AWS_CLI_VERSION}.zip`
@@ -178,17 +160,6 @@ async function ensureAwsCli(serverConfig, opts = {}) {
   )
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Shared helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Detects GCS endpoint. GCS needs special treatment with AWS CLI:
- *  - Region must be "us-east-1" (GCS ignores it but the CLI requires a real AWS region)
- *  - Do NOT pass --no-verify-ssl: GCS has valid certs and this flag causes both
- *    the urllib3 InsecureRequestWarning AND SignatureDoesNotMatch because it
- *    changes how the canonical request is constructed.
- */
 function isGCS(endpoint) {
   if (!endpoint) return false
   return endpoint.includes('storage.googleapis.com')
@@ -196,12 +167,6 @@ function isGCS(endpoint) {
 
 function buildAwsEnv(backupConfig) {
   const gcs = isGCS(backupConfig.s3Endpoint)
-
-  // Region rules:
-  //   - GCS: must be 'us-east-1' (GCS ignores it but AWS CLI rejects 'auto')
-  //   - 'auto': Cloudflare R2 specific — but old DB records may have this saved.
-  //     We normalise 'auto' to 'us-east-1' which works for both R2 and GCS.
-  //   - Everything else: use as-is, default to 'us-east-1'
   const rawRegion = backupConfig.s3Region || 'us-east-1'
   const region = (gcs || rawRegion === 'auto') ? 'us-east-1' : rawRegion
 
@@ -213,14 +178,8 @@ function buildAwsEnv(backupConfig) {
 
   const endpointFlag = backupConfig.s3Endpoint
     ? `--endpoint-url "${backupConfig.s3Endpoint}"`
-    : null  // null so filter(Boolean) removes it cleanly — no empty strings in joins
+    : null
 
-  // --no-verify-ssl:
-  //   - GCS: DO NOT USE. Valid cert. This flag changes canonical request construction
-  //     and causes SignatureDoesNotMatch.
-  //   - AWS: DO NOT USE. Valid cert.
-  //   - Self-hosted (MinIO, private): use it.
-  // Heuristic: only use --no-verify-ssl if endpoint is http:// or a private IP/hostname
   const isPrivateEndpoint = backupConfig.s3Endpoint &&
     (backupConfig.s3Endpoint.startsWith('http://') ||
       /https?:\/\/(localhost|127\.0\.0\.1|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(backupConfig.s3Endpoint))
@@ -230,19 +189,10 @@ function buildAwsEnv(backupConfig) {
   return { envPrefix, endpointFlag, noVerifySsl }
 }
 
-/** Builds a clean AWS CLI command string with no double-spaces or null tokens */
 function buildAwsCmd(...parts) {
   return parts.filter(Boolean).join(' ')
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Public API
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Validates S3/GCS credentials by doing aws s3 ls on the bucket.
- * Returns { ok: boolean, error: string|null }
- */
 export async function testS3Connection(serverConfig, backupConfig, opts = {}) {
   const log = (msg) => opts.onLog?.(`[s3-test] ${msg}`)
 

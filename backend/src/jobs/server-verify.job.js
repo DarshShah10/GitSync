@@ -7,13 +7,9 @@ import { ensureDockerReady } from '../services/docker.service.js'
 
 async function processServerVerify(job) {
   const { serverId } = job.data
-  const logs = []
 
   function log(message) {
-    const line = `[${new Date().toISOString()}] ${message}`
-    logs.push(line)
-    job.log(line)
-    console.log(line)
+    job.log(message)
   }
 
   const server = await Server.findById(serverId).lean()
@@ -22,13 +18,6 @@ async function processServerVerify(job) {
   if (!server.credential) throw new Error(`Server ${serverId} has no credential record.`)
 
   log(`Starting verification for server: ${server.name} (${server.ip})`)
-
-  console.log('[server-verify] Auth debug:', {
-    serverId:    server._id,
-    authType:    server.credential.authType,
-    hasPassword: !!server.credential.sshPassword,
-    hasKey:      !!server.credential.sshPrivateKey,
-  })
 
   await Server.updateOne(
     { _id: serverId },
@@ -129,18 +118,9 @@ export function startServerVerifyWorker() {
     }
   )
 
-  worker.on('completed', (job, result) => {
-    console.log(`[server-verify] Job ${job.id} completed:`, result)
-  })
-
   worker.on('failed', (job, err) => {
-    console.error(`[server-verify] Job ${job?.id} failed:`, err.message)
+    job.log(`Job failed: ${err.message}`)
   })
 
-  worker.on('error', (err) => {
-    console.error('[server-verify] Worker error:', err)
-  })
-
-  console.log('[server-verify] Worker started.')
   return worker
 }

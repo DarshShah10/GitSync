@@ -5,12 +5,12 @@ import rateLimit from '@fastify/rate-limit'
 
 import { config } from './config/index.js'
 import { connect as connectMongo, disconnect as disconnectMongo } from './db/mongo.js'
-import { registerErrorHandler } from './middleware/errorHandler.js'
-import { attachUser } from './middleware/auth.middleware.js'
-import { healthRoutes } from './routes/health.js'
-import { serverRoutes } from './routes/servers.js'
-import { databaseRoutes } from './routes/databases.js'
-import { projectRoutes } from './routes/projects.js'
+import { registerErrorHandler } from './middlewares/errorHandler.js'
+import { attachUser } from './middlewares/auth.middleware.js'
+import { healthRoutes } from './routes/health.routes.js'
+import { serverRoutes } from './routes/server.routes.js'
+import { databaseRoutes } from './routes/database.routes.js'
+import { projectRoutes } from './routes/project.routes.js'
 import { startAllWorkers, stopAllWorkers } from './jobs/workers.js'
 
 export async function buildApp() {

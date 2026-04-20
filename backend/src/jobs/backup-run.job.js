@@ -6,13 +6,9 @@ import { runBackup } from '../services/backup.service.js'
 
 async function processBackupRun(job) {
   const { policyId, runId } = job.data
-  const logs = []
 
   function log(message) {
-    const line = `[${new Date().toISOString()}] ${message}`
-    logs.push(line)
-    job.log(line)
-    console.log(line)
+    job.log(message)
   }
 
   const policy = await BackupPolicy.findById(policyId).lean()
@@ -113,13 +109,7 @@ export function startBackupWorker() {
     }
   )
 
-  worker.on('completed', (job, result) => {
-    console.log(`[backup] Job ${job.id} completed:`, result.s3Key)
-  })
-
   worker.on('failed', async (job, err) => {
-    console.error(`[backup] Job ${job?.id} failed:`, err.message)
-
     if (job?.data?.runId) {
       try {
         await BackupRun.updateOne(
@@ -136,10 +126,5 @@ export function startBackupWorker() {
     }
   })
 
-  worker.on('error', (err) => {
-    console.error('[backup] Worker error:', err)
-  })
-
-  console.log('[backup] Worker started.')
   return worker
 }

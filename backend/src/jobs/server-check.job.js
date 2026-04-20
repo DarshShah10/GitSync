@@ -57,14 +57,12 @@ async function processServerCheck(job) {
             { _id: svc._id },
             { $set: { status: 'STOPPED' } }
           )
-          console.log(`[server-check] ${svc.name} on ${server.name}: RUNNING → STOPPED (container gone)`)
           statusUpdated++
         } else if (svc.status === 'STOPPED' && isRunning) {
           await Service.updateOne(
             { _id: svc._id },
             { $set: { status: 'RUNNING', lastHealthCheckAt: new Date() } }
           )
-          console.log(`[server-check] ${svc.name} on ${server.name}: STOPPED → RUNNING (container found)`)
           statusUpdated++
         } else if (svc.status === 'RUNNING' && isRunning) {
           await Service.updateOne(
@@ -74,8 +72,6 @@ async function processServerCheck(job) {
         }
       }
     } catch (err) {
-      console.error(`[server-check] Error checking server ${server.name} (${server.ip}):`, err.message)
-
       try {
         await Server.updateOne(
           { _id: server._id },
@@ -98,23 +94,9 @@ export function startServerCheckWorker() {
     }
   )
 
-  worker.on('completed', (job, result) => {
-    if (result.statusUpdated > 0) {
-      console.log(
-        `[server-check] Job ${job.id}: checked ${result.serversChecked} server(s), ` +
-        `updated ${result.statusUpdated} status(es)`
-      )
-    }
-  })
-
   worker.on('failed', (job, err) => {
-    console.error(`[server-check] Job ${job?.id} failed:`, err.message)
+    job.log(`Job failed: ${err.message}`)
   })
 
-  worker.on('error', (err) => {
-    console.error('[server-check] Worker error:', err)
-  })
-
-  console.log('[server-check] Worker started.')
   return worker
 }

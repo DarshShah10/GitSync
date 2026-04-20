@@ -11,13 +11,9 @@ import {
 
 async function processServiceCreate(job) {
   const { serviceId } = job.data
-  const logs = []
 
   function log(message) {
-    const line = `[${new Date().toISOString()}] ${message}`
-    logs.push(line)
-    job.log(line)
-    console.log(line)
+    job.log(message)
   }
 
   const service = await Service.findById(serviceId).lean()
@@ -125,13 +121,7 @@ export function startServiceCreateWorker() {
     }
   )
 
-  worker.on('completed', (job, result) => {
-    console.log(`[service-create] Job ${job.id} completed:`, result.serviceId)
-  })
-
   worker.on('failed', async (job, err) => {
-    console.error(`[service-create] Job ${job?.id} failed:`, err.message)
-
     if (job?.data?.serviceId) {
       try {
         await Service.updateOne(
@@ -149,11 +139,6 @@ export function startServiceCreateWorker() {
     }
   })
 
-  worker.on('error', (err) => {
-    console.error('[service-create] Worker error:', err)
-  })
-
-  console.log('[service-create] Worker started.')
   return worker
 }
 

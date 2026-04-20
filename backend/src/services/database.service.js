@@ -132,30 +132,17 @@ export const DB_CONFIGS = {
   },
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Shell / YAML escaping helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Wraps a value in YAML single-quoted scalar — safe for ANY character.
-// Single quotes in the value are escaped as '' (YAML convention).
 function yamlStr(val) {
   return `'${String(val ?? '').replace(/'/g, "''")}'`
 }
 
-// Wraps a value in shell single quotes — safe for any char except single-quote,
-// which is escaped by ending/reopening the quoted string.
 function shSingleQuote(val) {
   return `'${String(val ?? '').replace(/'/g, "'\\''")}'`
 }
 
-// Escapes a string for embedding in a YAML double-quoted scalar.
 function yamlDqEscape(str) {
   return str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Compose file path helpers
-// ─────────────────────────────────────────────────────────────────────────────
 
 function composeDir(containerName) {
   return `/opt/gitsync/databases/${containerName}`
@@ -165,22 +152,6 @@ function composePath(containerName) {
   return `${composeDir(containerName)}/docker-compose.yml`
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Docker Compose YAML generation
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Generates a Docker Compose YAML string for a database + socat proxy stack.
- *
- * Design decisions (matching Coolify):
- *  - Named volume for data persistence (survives container recreation)
- *  - Database container has NO host port binding — only on the internal network
- *  - socat proxy binds the public port and forwards TCP to the db service
- *  - Env vars written as YAML single-quoted scalars (handles all special chars)
- *  - composeCommand written as YAML sequence (bypasses shell interpretation)
- *  - Healthcheck uses Docker's native HEALTHCHECK — compose waits for healthy
- *    before starting the proxy, so no manual polling needed
- */
 function generateComposeYaml(containerName, typeConfig, dbConfig, volumeName) {
   const { internalPort, dataPath } = typeConfig
   const envVars = typeConfig.envVars(dbConfig)
@@ -293,20 +264,6 @@ export async function findFreePort(serverConfig, startPort = 20000, endPort = 30
   throw new Error(`No free port found between ${startPort} and ${endPort}`)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Database provisioning
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Provisions a new database using Docker Compose (Coolify-style):
- *  1. Pulls images
- *  2. Writes a compose file to /opt/gitsync/databases/<name>/ on the server
- *  3. Runs `docker compose up -d`
- *  4. Waits for the db service to reach health=healthy (native Docker healthcheck)
- *  5. Returns containerName and volumeName
- *
- * On any failure after the compose stack has started, tears it down cleanly.
- */
 export async function provisionDatabase(serverConfig, dbConfig, opts = {}) {
   const log = (msg) => opts.onLog?.(`[provision] ${msg}`)
   const typeConfig = DB_CONFIGS[dbConfig.type]
@@ -407,10 +364,6 @@ export async function provisionDatabase(serverConfig, dbConfig, opts = {}) {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Container lifecycle (via Docker Compose)
-// ─────────────────────────────────────────────────────────────────────────────
-
 export async function stopContainer(serverConfig, containerName) {
   const { code } = await runCommand(
     serverConfig,
@@ -438,10 +391,6 @@ export async function restartContainer(serverConfig, containerName) {
   return { success: code === 0 }
 }
 
-/**
- * Removes the entire compose stack including the named data volume.
- * Only call this on explicit database delete — data is irrecoverable.
- */
 export async function removeContainer(serverConfig, containerName) {
   const cPath = composePath(containerName)
   const cDir  = composeDir(containerName)
@@ -455,14 +404,6 @@ export async function removeContainer(serverConfig, containerName) {
   return { success: true }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Observability
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Returns the live container status: 'running' | 'stopped' | 'not_found'
- * Checks the db service container directly (not the proxy).
- */
 export async function getContainerStatus(serverConfig, containerName) {
   const { stdout, code } = await runCommand(
     serverConfig,
@@ -506,10 +447,6 @@ export async function getContainerLogs(serverConfig, containerName, tail = 100) 
   )
   return stdout
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Connection string builder
-// ─────────────────────────────────────────────────────────────────────────────
 
 export function buildConnectionStrings(type, cfg) {
   const typeConfig = DB_CONFIGS[type]

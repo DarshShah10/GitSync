@@ -1,15 +1,7 @@
 import { runCommand, runCommands, SSHError } from './ssh.service.js'
 
-// Minimum Docker version we require
 const MIN_DOCKER_MAJOR = 24
 
-/**
- * Checks whether Docker is installed on the remote server
- * and returns its version.
- *
- * @param {object} serverConfig
- * @returns {Promise<{ installed: boolean, version: string|null, meetsMinimum: boolean }>}
- */
 export async function checkDockerInstalled(serverConfig) {
   try {
     const { stdout, code } = await runCommand(
@@ -39,13 +31,6 @@ export async function checkDockerInstalled(serverConfig) {
   }
 }
 
-/**
- * Detects the Linux distro/OS on the remote server.
- * Needed to pick the right Docker install script.
- *
- * @param {object} serverConfig
- * @returns {Promise<{ distro: string, version: string }>}
- */
 export async function detectOS(serverConfig) {
   try {
     const { stdout } = await runCommand(
@@ -67,16 +52,6 @@ export async function detectOS(serverConfig) {
   }
 }
 
-/**
- * Installs Docker on the remote server using the official convenience script.
- * Works on Ubuntu, Debian, CentOS, Fedora, and most common distros.
- *
- * @param {object} serverConfig
- * @param {object} [opts]
- * @param {function} [opts.onLog]  — streaming log callback(line: string)
- *
- * @returns {Promise<{ success: boolean, error?: string }>}
- */
 export async function installDocker(serverConfig, opts = {}) {
   const log = (line) => opts.onLog?.(`[docker-install] ${line}`)
 
@@ -151,24 +126,6 @@ export async function verifyDockerRunning(serverConfig) {
   }
 }
 
-/**
- * Full Docker readiness check:
- * 1. Is Docker installed?
- * 2. Does it meet the minimum version?
- * 3. Is the daemon running?
- *
- * @param {object} serverConfig
- * @param {object} [opts]
- * @param {function} [opts.onLog]
- *
- * @returns {Promise<{
- *   ready: boolean,
- *   installed: boolean,
- *   version: string|null,
- *   daemonHealthy: boolean,
- *   error?: string
- * }>}
- */
 export async function ensureDockerReady(serverConfig, opts = {}) {
   const log = (msg) => opts.onLog?.(msg)
 
