@@ -1,5 +1,5 @@
 import { Client } from 'ssh2'
-import { config } from '../config/index.js'
+import { config } from '../constants/index.js'
 
 export class SSHError extends Error {
   constructor(message, code = 'SSH_ERROR') {

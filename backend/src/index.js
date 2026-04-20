@@ -1,9 +1,10 @@
+import 'dotenv/config'
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
 
-import { config } from './config/index.js'
+import { config } from './constants/index.js'
 import { connect as connectMongo, disconnect as disconnectMongo } from './db/mongo.js'
 import { registerErrorHandler } from './middlewares/errorHandler.js'
 import { attachUser } from './middlewares/auth.middleware.js'

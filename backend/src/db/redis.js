@@ -1,5 +1,5 @@
 import IORedis from 'ioredis'
-import { config } from '../config/index.js'
+import { config } from '../constants/index.js'
 
 // BullMQ requires a specific Redis connection config
 export function createRedisConnection() {

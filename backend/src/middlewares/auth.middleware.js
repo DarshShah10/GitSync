@@ -1,5 +1,5 @@
 import { User, Project } from '../models/index.js'
-import { config } from '../config/index.js'
+import { config } from '../constants/index.js'
 
 let _cachedDevUser = null
 

@@ -1,8 +1,8 @@
 import mongoose from "mongoose";
-import { config } from "../config/index.js";
+import { config } from "../constants/index.js";
 
 const connect = async () => {
-  await mongoose.connect(config.db.mongoUri, {
+  await mongoose.connect(config.db.uri, {
     appName: "GitSync",
   });
 };

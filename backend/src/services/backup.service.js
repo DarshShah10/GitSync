@@ -1,70 +1,5 @@
 import { runCommand } from './ssh.service.js'
-
-const BACKUP_TOOLS = {
-  MONGODB: {
-    dumpCmd: (cfg) => {
-      const encodedPass = encodeURIComponent(cfg.dbPassword)
-      const encodedUser = encodeURIComponent(cfg.dbUser)
-      return (
-        `docker exec ${cfg.containerName} mongodump ` +
-        `--host=127.0.0.1 --port=27017 ` +
-        `--username="${cfg.dbUser}" --password="${cfg.dbPassword}" ` +
-        `--authenticationDatabase=admin ` +
-        `--archive=/tmp/${cfg.backupFile} --gzip && ` +
-        `docker cp ${cfg.containerName}:/tmp/${cfg.backupFile} /tmp/${cfg.backupFile}`
-      )
-    },
-    ext: '.archive.gz',
-  },
-  POSTGRESQL: {
-    dumpCmd: (cfg) =>
-      `docker exec -e PGPASSWORD="${cfg.dbPassword}" ${cfg.containerName} ` +
-      `pg_dump -U ${cfg.dbUser} -d ${cfg.dbName} -F c -f /tmp/${cfg.backupFile} && ` +
-      `docker cp ${cfg.containerName}:/tmp/${cfg.backupFile} /tmp/${cfg.backupFile}`,
-    ext: '.dump',
-  },
-  MYSQL: {
-    // Pipe directly to host /tmp — no docker cp needed
-    dumpCmd: (cfg) =>
-      `docker exec ${cfg.containerName} mysqldump -u ${cfg.dbUser} -p"${cfg.dbPassword}" --databases ${cfg.dbName} 2>/dev/null | gzip > /tmp/${cfg.backupFile}`,
-    ext: '.sql.gz',
-  },
-  MARIADB: {
-    dumpCmd: (cfg) =>
-      `docker exec ${cfg.containerName} mysqldump -u ${cfg.dbUser} -p"${cfg.dbPassword}" --databases ${cfg.dbName} 2>/dev/null | gzip > /tmp/${cfg.backupFile}`,
-    ext: '.sql.gz',
-  },
-  REDIS: {
-    // BGSAVE writes dump.rdb inside the container, then we copy it out
-    dumpCmd: (cfg) =>
-      `docker exec ${cfg.containerName} redis-cli -a "${cfg.dbPassword}" BGSAVE 2>/dev/null && sleep 3 && ` +
-      `docker cp ${cfg.containerName}:/data/dump.rdb /tmp/${cfg.backupFile}`,
-    ext: '.rdb',
-  },
-  KEYDB: {
-    dumpCmd: (cfg) =>
-      `docker exec ${cfg.containerName} keydb-cli -a "${cfg.dbPassword}" BGSAVE 2>/dev/null && sleep 3 && ` +
-      `docker cp ${cfg.containerName}:/data/dump.rdb /tmp/${cfg.backupFile}`,
-    ext: '.rdb',
-  },
-  DRAGONFLY: {
-    dumpCmd: (cfg) =>
-      `docker exec ${cfg.containerName} redis-cli -a "${cfg.dbPassword}" BGSAVE 2>/dev/null && sleep 3 && ` +
-      `docker cp ${cfg.containerName}:/data/dump.rdb /tmp/${cfg.backupFile}`,
-    ext: '.rdb',
-  },
-  CLICKHOUSE: {
-    dumpCmd: (cfg) =>
-      `docker exec ${cfg.containerName} clickhouse-client ` +
-      `--user=${cfg.dbUser} --password="${cfg.dbPassword}" ` +
-      `--query="BACKUP DATABASE \`${cfg.dbName}\` TO File('/var/lib/clickhouse/backup/${cfg.backupFile}')" && ` +
-      `docker cp ${cfg.containerName}:/var/lib/clickhouse/backup/${cfg.backupFile} /tmp/${cfg.backupFile}`,
-    ext: '.zip',
-  },
-}
-
-const PINNED_AWS_CLI_VERSION = '2.13.0'
-const PINNED_AWS_CLI_URL = `https://awscli.amazonaws.com/awscli-exe-linux-x86_64-${PINNED_AWS_CLI_VERSION}.zip`
+import { BACKUP_TOOLS, AWS_CLI_VERSION, AWS_CLI_URL } from '../constants/index.js'
 
 /**
  * Returns the installed AWS CLI version string, or null if not installed.
@@ -92,7 +27,7 @@ function isTooNew(version) {
  * Uses --update flag so it overwrites any existing version.
  */
 async function installPinnedAwsCli(serverConfig, log) {
-  log(`Installing AWS CLI v${PINNED_AWS_CLI_VERSION} (pinned for GCS compatibility)...`)
+  log(`Installing AWS CLI v${AWS_CLI_VERSION} (pinned for GCS compatibility)...`)
 
   await runCommand(
     serverConfig,
@@ -102,7 +37,7 @@ async function installPinnedAwsCli(serverConfig, log) {
 
   const steps = [
     'rm -rf /tmp/awscliv2.zip /tmp/aws-cli-v2',
-    `curl -fsSL "${PINNED_AWS_CLI_URL}" -o /tmp/awscliv2.zip`,
+    `curl -fsSL "${AWS_CLI_URL}" -o /tmp/awscliv2.zip`,
     'unzip -q /tmp/awscliv2.zip -d /tmp/aws-cli-v2',
     '/tmp/aws-cli-v2/aws/install --install-dir /usr/local/aws-cli --bin-dir /usr/local/bin --update',
     'rm -rf /tmp/awscliv2.zip /tmp/aws-cli-v2',
@@ -139,9 +74,9 @@ async function ensureAwsCli(serverConfig, opts = {}) {
   }
 
   if (currentVersion && isTooNew(currentVersion)) {
-    log(`AWS CLI v${currentVersion} is too new — CRC64NVME checksums break GCS. Downgrading to v${PINNED_AWS_CLI_VERSION}...`)
+    log(`AWS CLI v${currentVersion} is too new — CRC64NVME checksums break GCS. Downgrading to v${AWS_CLI_VERSION}...`)
   } else {
-    log(`AWS CLI not found. Installing v${PINNED_AWS_CLI_VERSION}...`)
+    log(`AWS CLI not found. Installing v${AWS_CLI_VERSION}...`)
   }
 
   if (await installPinnedAwsCli(serverConfig, log)) {
@@ -151,9 +86,9 @@ async function ensureAwsCli(serverConfig, opts = {}) {
   }
 
   throw new Error(
-    `Failed to install AWS CLI v${PINNED_AWS_CLI_VERSION}.\n` +
+    `Failed to install AWS CLI v${AWS_CLI_VERSION}.\n` +
     `Manual fix — SSH into the server and run:\n` +
-    `  curl "${PINNED_AWS_CLI_URL}" -o /tmp/awscliv2.zip\n` +
+    `  curl "${AWS_CLI_URL}" -o /tmp/awscliv2.zip\n` +
     `  unzip /tmp/awscliv2.zip -d /tmp/aws-cli-v2\n` +
     `  /tmp/aws-cli-v2/aws/install --update\n` +
     `  aws --version`
