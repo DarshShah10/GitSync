@@ -4,6 +4,7 @@ import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
 
 import { config } from './config/index.js'
+import { connect as connectMongo, disconnect as disconnectMongo } from './db/mongo.js'
 import { registerErrorHandler } from './middleware/errorHandler.js'
 import { attachUser } from './middleware/auth.middleware.js'
 import { healthRoutes } from './routes/health.js'
@@ -61,7 +62,7 @@ export async function buildApp() {
   await app.register(projectRoutes)
 
   app.get('/', async () => ({
-    name:    'DBShift API',
+    name:    'GitSync API',
     version: '3.0.0',
     docs:    '/health',
   }))
@@ -74,7 +75,10 @@ async function start() {
   let workers = []
 
   try {
-    app     = await buildApp()
+    await connectMongo()
+    console.log('MongoDB connected.')
+
+    app = await buildApp()
     await app.listen({ port: config.app.port, host: config.app.host })
     app.log.info(`Environment: ${config.app.env}`)
     app.log.info(`Server listening on http://${config.app.host}:${config.app.port}`)
@@ -90,6 +94,7 @@ async function start() {
     try {
       await stopAllWorkers(workers)
       await app.close()
+      await disconnectMongo()
       app.log.info('Server closed.')
       process.exit(0)
     } catch (err) {

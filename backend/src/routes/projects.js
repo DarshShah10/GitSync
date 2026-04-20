@@ -1,20 +1,13 @@
-/**
- * /api/projects routes
- *
- * Projects group services by product/repo.
- * Each project has named Environments (prod, staging, dev).
- */
-
-import { prisma } from '../db/prisma.js'
+import { Project, Service } from '../models/index.js'
 import { z } from 'zod'
 
-const projectIdSchema = z.object({ id: z.string().uuid() })
-const envIdSchema     = z.object({ id: z.string().uuid(), envId: z.string().uuid() })
+const projectIdSchema = z.object({ id: z.string() })
+const envIdSchema     = z.object({ id: z.string(), envId: z.string() })
 
 const createProjectSchema = z.object({
   name:        z.string().min(1).max(64).trim(),
   description: z.string().max(256).optional(),
-  teamId:      z.string().uuid().optional(),
+  teamId:      z.string().optional(),
 })
 
 const createEnvironmentSchema = z.object({
@@ -29,102 +22,90 @@ const createEnvironmentSchema = z.object({
 
 export async function projectRoutes(app) {
 
-  // ── POST /api/projects ──────────────────────────────────────────────────────
   app.post('/api/projects', async (request, reply) => {
     const body = createProjectSchema.parse(request.body)
 
-    const project = await prisma.project.create({
-      data: {
-        userId:      request.user.id,
-        teamId:      body.teamId ?? null,
-        name:        body.name,
-        description: body.description ?? null,
-      },
-      include: { environments: true },
+    const project = await Project.create({
+      userId:      request.user.id,
+      teamId:      body.teamId ?? null,
+      name:        body.name,
+      description: body.description ?? null,
     })
 
     return reply.status(201).send({ success: true, data: project })
   })
 
-  // ── GET /api/projects ───────────────────────────────────────────────────────
   app.get('/api/projects', async (request, reply) => {
-    const projects = await prisma.project.findMany({
-      where:   { userId: request.user.id },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        environments: {
-          include: { _count: { select: { services: true } } },
-        },
-        _count: { select: { environments: true } },
-      },
-    })
+    const projects = await Project.find({ userId: request.user.id })
+      .sort({ createdAt: -1 })
+      .lean()
 
-    return { success: true, data: projects }
+    const projectsWithCounts = await Promise.all(projects.map(async (proj) => {
+      const envCount = proj.environments?.length ?? 0
+      let serviceCount = 0
+      if (proj.environments?.length) {
+        serviceCount = await Service.countDocuments({
+          environmentId: { $in: proj.environments.map(e => e._id) }
+        })
+      }
+      return { ...proj, _count: { environments: envCount, services: serviceCount } }
+    }))
+
+    return { success: true, data: projectsWithCounts }
   })
 
-  // ── GET /api/projects/:id ───────────────────────────────────────────────────
   app.get('/api/projects/:id', async (request, reply) => {
     const { id } = projectIdSchema.parse(request.params)
 
-    const project = await prisma.project.findFirst({
-      where:   { id, userId: request.user.id },
-      include: {
-        environments: {
-          include: {
-            services: {
-              where:   { type: 'DATABASE' },
-              select:  { id: true, name: true, status: true, config: true },
-              orderBy: { createdAt: 'desc' },
-            },
-          },
-          orderBy: { createdAt: 'asc' },
-        },
-      },
-    })
+    const project = await Project.findOne({
+      _id: id,
+      userId: request.user.id
+    }).lean()
 
     if (!project) return reply.status(404).send({ success: false, error: 'Project not found' })
 
     return { success: true, data: project }
   })
 
-  // ── PATCH /api/projects/:id ─────────────────────────────────────────────────
   app.patch('/api/projects/:id', async (request, reply) => {
     const { id } = projectIdSchema.parse(request.params)
     const body   = createProjectSchema.partial().parse(request.body)
 
-    const project = await prisma.project.findFirst({ where: { id, userId: request.user.id } })
+    const project = await Project.findOne({ _id: id, userId: request.user.id })
     if (!project) return reply.status(404).send({ success: false, error: 'Project not found' })
 
-    const updated = await prisma.project.update({ where: { id }, data: body })
+    const updateData = {}
+    if (body.name) updateData.name = body.name
+    if (body.description !== undefined) updateData.description = body.description
+
+    await Project.updateOne({ _id: id }, { $set: updateData })
+
+    const updated = await Project.findById(id).lean()
     return { success: true, data: updated }
   })
 
-  // ── DELETE /api/projects/:id ────────────────────────────────────────────────
   app.delete('/api/projects/:id', async (request, reply) => {
     const { id } = projectIdSchema.parse(request.params)
 
-    const project = await prisma.project.findFirst({
-      where:   { id, userId: request.user.id },
-      include: { _count: { select: { environments: true } } },
+    const project = await Project.findOne({
+      _id: id,
+      userId: request.user.id
     })
+
     if (!project) return reply.status(404).send({ success: false, error: 'Project not found' })
 
-    await prisma.project.delete({ where: { id } })
+    await Project.deleteOne({ _id: id })
     return { success: true, message: `Project "${project.name}" deleted.` }
   })
 
-  // ── POST /api/projects/:id/environments ─────────────────────────────────────
   app.post('/api/projects/:id/environments', async (request, reply) => {
     const { id } = projectIdSchema.parse(request.params)
     const body   = createEnvironmentSchema.parse(request.body)
 
-    const project = await prisma.project.findFirst({ where: { id, userId: request.user.id } })
+    const project = await Project.findOne({ _id: id, userId: request.user.id })
     if (!project) return reply.status(404).send({ success: false, error: 'Project not found' })
 
-    // Check slug uniqueness within project
-    const existing = await prisma.environment.findUnique({
-      where: { projectId_slug: { projectId: id, slug: body.slug } },
-    })
+    const existing = project.environments?.find(e => e.slug === body.slug)
     if (existing) {
       return reply.status(409).send({
         success: false,
@@ -132,30 +113,43 @@ export async function projectRoutes(app) {
       })
     }
 
-    const env = await prisma.environment.create({
-      data: { projectId: id, name: body.name, slug: body.slug },
-    })
+    await Project.updateOne(
+      { _id: id },
+      { $push: { environments: { name: body.name, slug: body.slug } } }
+    )
+
+    const updated = await Project.findById(id).lean()
+    const env = updated.environments.find(e => e.slug === body.slug)
 
     return reply.status(201).send({ success: true, data: env })
   })
 
-  // ── DELETE /api/projects/:id/environments/:envId ────────────────────────────
   app.delete('/api/projects/:id/environments/:envId', async (request, reply) => {
     const { id, envId } = envIdSchema.parse(request.params)
 
-    const env = await prisma.environment.findFirst({
-      where:   { id: envId, projectId: id, project: { userId: request.user.id } },
-      include: { _count: { select: { services: true } } },
-    })
+    const project = await Project.findOne({
+      _id: id,
+      userId: request.user.id
+    }).lean()
+
+    if (!project) return reply.status(404).send({ success: false, error: 'Project not found' })
+
+    const env = project.environments?.find(e => e._id?.toString() === envId)
     if (!env) return reply.status(404).send({ success: false, error: 'Environment not found' })
-    if (env._count.services > 0) {
+
+    const serviceCount = await Service.countDocuments({ environmentId: envId })
+    if (serviceCount > 0) {
       return reply.status(400).send({
         success: false,
-        error:   `Cannot delete environment with ${env._count.services} active service(s). Delete services first.`,
+        error:   `Cannot delete environment with ${serviceCount} active service(s). Delete services first.`,
       })
     }
 
-    await prisma.environment.delete({ where: { id: envId } })
+    await Project.updateOne(
+      { _id: id },
+      { $pull: { environments: { _id: envId } } }
+    )
+
     return { success: true, message: `Environment "${env.name}" deleted.` }
   })
 }

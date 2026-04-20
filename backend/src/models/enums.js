@@ -1,0 +1,16 @@
+// ============================================================
+// SHARED ENUMS
+// ============================================================
+
+export const AuthType        = ["SSH_KEY", "PASSWORD"];
+export const TeamRole        = ["OWNER", "ADMIN", "MEMBER"];
+export const ServerStatus    = ["PENDING", "VERIFYING", "CONNECTED", "UNREACHABLE", "MAINTENANCE", "ERROR"];
+export const OsType          = ["UBUNTU", "DEBIAN", "CENTOS", "ALPINE", "FEDORA", "ARCH", "OTHER"];
+export const ServiceType     = ["APP", "DATABASE", "STATIC", "DOCKER_COMPOSE", "WORKER"];
+export const ServiceStatus   = ["CREATING", "RUNNING", "STOPPED", "ERROR", "DEPLOYING", "BUILDING", "RESTARTING"];
+export const DatabaseEngine  = ["POSTGRESQL", "MYSQL", "MARIADB", "MONGODB", "REDIS", "KEYDB", "DRAGONFLY", "CLICKHOUSE"];
+export const EnvVarScope     = ["BUILD", "RUNTIME", "ALL"];
+export const DeploymentStatus  = ["QUEUED", "BUILDING", "DEPLOYING", "SUCCESS", "FAILED", "CANCELLED"];
+export const DeploymentTrigger = ["MANUAL", "GIT_PUSH", "WEBHOOK", "SCHEDULE", "API"];
+export const BackupType      = ["FULL", "INCREMENTAL"];
+export const BackupRunStatus = ["PENDING", "RUNNING", "SUCCESS", "FAILED"];

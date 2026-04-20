@@ -80,5 +80,5 @@ export const updateServerSchema = z.object({
 })
 
 export const serverIdSchema = z.object({
-  id: z.string().uuid('Invalid server ID'),
+  id: z.string().min(1, 'Invalid server ID'),
 })

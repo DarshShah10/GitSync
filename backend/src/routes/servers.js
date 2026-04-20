@@ -1,29 +1,19 @@
-import { prisma } from '../db/prisma.js'
+import { Server } from '../models/index.js'
 import { serverVerifyQueue } from '../jobs/queues.js'
 import { testConnection, validatePrivateKey } from '../services/ssh.service.js'
+import mongoose from 'mongoose'
 import {
   createServerSchema,
   updateServerSchema,
   serverIdSchema,
 } from './servers.schema.js'
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Strip sensitive credential fields from API responses.
- * The credential sub-object is removed entirely — only metadata is returned.
- */
 function sanitizeServer(server) {
-  const { credential, ...safe } = server
-  return safe
+  const obj = server.toObject ? server.toObject() : server
+  delete obj.credential
+  return obj
 }
 
-/**
- * Build the serverConfig object required by ssh.service.js.
- * Reads from the ServerCredential relation — must be included in the Prisma query.
- */
 function buildServerConfig(server) {
   const cred = server.credential
   if (!cred) throw new Error(`Server ${server.id} has no credential record`)
@@ -31,19 +21,14 @@ function buildServerConfig(server) {
     ip:         server.ip,
     port:       server.sshPort,
     username:   cred.sshUsername,
-    authType:   cred.authType,        // 'SSH_KEY' | 'PASSWORD'
+    authType:   cred.authType,
     password:   cred.sshPassword   ?? null,
     privateKey: cred.sshPrivateKey ?? null,
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Routes
-// ─────────────────────────────────────────────────────────────────────────────
-
 export async function serverRoutes(app) {
 
-  // ── POST /api/servers ──────────────────────────────────────────────────────
   app.post('/api/servers', async (request, reply) => {
     const body = createServerSchema.parse(request.body)
 
@@ -54,33 +39,27 @@ export async function serverRoutes(app) {
       }
     }
 
-    const server = await prisma.server.create({
-      data: {
-        userId:  request.user.id,
-        name:    body.name,
-        ip:      body.ip,
-        sshPort: body.port ?? 22,
-        status:  'PENDING',
-        // Credentials stored in a separate table — never returned in list queries
-        credential: {
-          create: {
-            authType:      body.authType,
-            sshUsername:   body.username ?? 'root',
-            sshPrivateKey: body.authType === 'SSH_KEY'   ? body.privateKey : null,
-            sshPassword:   body.authType === 'PASSWORD'  ? body.password   : null,
-          },
-        },
+    const server = await Server.create({
+      userId:  request.user.id,
+      name:    body.name,
+      ip:      body.ip,
+      sshPort: body.port ?? 22,
+      status:  'PENDING',
+      credential: {
+        authType:      body.authType,
+        sshUsername:   body.username ?? 'root',
+        sshPrivateKey: body.authType === 'SSH_KEY'   ? body.privateKey : null,
+        sshPassword:   body.authType === 'PASSWORD'  ? body.password   : null,
       },
-      include: { credential: true },
     })
 
     const job = await serverVerifyQueue.add(
       'verify',
-      { serverId: server.id },
-      { jobId: `verify-${server.id}` }
+      { serverId: server._id.toString() },
+      { jobId: `verify-${server._id}` }
     )
 
-    app.log.info({ serverId: server.id, jobId: job.id }, 'Server created, verification queued')
+    app.log.info({ serverId: server._id, jobId: job.id }, 'Server created, verification queued')
 
     return reply.status(201).send({
       success: true,
@@ -89,55 +68,56 @@ export async function serverRoutes(app) {
     })
   })
 
-  // ── GET /api/servers ───────────────────────────────────────────────────────
   app.get('/api/servers', async (request, reply) => {
-    const servers = await prisma.server.findMany({
-      where:   { userId: request.user.id },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        _count: { select: { services: { where: { type: 'DATABASE' } } } },
-      },
-    })
+    const servers = await Server.find({ userId: request.user.id })
+      .sort({ createdAt: -1 })
+      .lean()
 
-    return { success: true, data: servers.map(sanitizeServer) }
+    const { Service } = await import('../models/index.js')
+    const serversWithCount = await Promise.all(servers.map(async (srv) => {
+      const count = await Service.countDocuments({
+        serverId: srv._id,
+        type: 'DATABASE'
+      })
+      return { ...srv, _count: { services: count } }
+    }))
+
+    return { success: true, data: serversWithCount.map(sanitizeServer) }
   })
 
-  // ── GET /api/servers/:id ───────────────────────────────────────────────────
   app.get('/api/servers/:id', async (request, reply) => {
     const { id } = serverIdSchema.parse(request.params)
 
-    const server = await prisma.server.findFirst({
-      where:   { id, userId: request.user.id },
-      include: {
-        services: {
-          where:   { type: 'DATABASE' },
-          select:  {
-            id: true, name: true, status: true, createdAt: true,
-            config: true,  // contains dbEngine
-          },
-          orderBy: { createdAt: 'desc' },
-        },
-      },
-    })
+    const server = await Server.findOne({
+      _id: id,
+      userId: request.user.id
+    }).lean()
 
     if (!server) {
       return reply.status(404).send({ success: false, error: 'Server not found' })
     }
 
-    return { success: true, data: sanitizeServer(server) }
+    const { Service } = await import('../models/index.js')
+    const services = await Service.find({
+      serverId: server._id,
+      type: 'DATABASE'
+    })
+      .select('id name status createdAt config')
+      .sort({ createdAt: -1 })
+      .lean()
+
+    return { success: true, data: { ...server, services } }
   })
 
-  // ── GET /api/servers/:id/status ────────────────────────────────────────────
   app.get('/api/servers/:id/status', async (request, reply) => {
     const { id } = serverIdSchema.parse(request.params)
 
-    const server = await prisma.server.findFirst({
-      where: { id, userId: request.user.id },
-      select: {
-        id: true, status: true, dockerVersion: true,
-        errorMessage: true, lastCheckedAt: true,
-      },
+    const server = await Server.findOne({
+      _id: id,
+      userId: request.user.id
     })
+      .select('id status dockerVersion errorMessage lastCheckedAt')
+      .lean()
 
     if (!server) {
       return reply.status(404).send({ success: false, error: 'Server not found' })
@@ -146,21 +126,21 @@ export async function serverRoutes(app) {
     return { success: true, data: server }
   })
 
-  // ── POST /api/servers/:id/verify ───────────────────────────────────────────
   app.post('/api/servers/:id/verify', async (request, reply) => {
     const { id } = serverIdSchema.parse(request.params)
 
-    const server = await prisma.server.findFirst({
-      where: { id, userId: request.user.id },
+    const server = await Server.findOne({
+      _id: id,
+      userId: request.user.id
     })
     if (!server) {
       return reply.status(404).send({ success: false, error: 'Server not found' })
     }
 
-    await prisma.server.update({
-      where: { id },
-      data:  { status: 'PENDING', errorMessage: null },
-    })
+    await Server.updateOne(
+      { _id: id },
+      { $set: { status: 'PENDING', errorMessage: null } }
+    )
 
     const existingJob = await serverVerifyQueue.getJob(`verify-${id}`)
     if (existingJob) await existingJob.remove().catch(() => {})
@@ -174,14 +154,14 @@ export async function serverRoutes(app) {
     return { success: true, message: 'Verification re-queued', jobId: job.id }
   })
 
-  // ── POST /api/servers/:id/test-connection ──────────────────────────────────
   app.post('/api/servers/:id/test-connection', async (request, reply) => {
     const { id } = serverIdSchema.parse(request.params)
 
-    const server = await prisma.server.findFirst({
-      where:   { id, userId: request.user.id },
-      include: { credential: true },
-    })
+    const server = await Server.findOne({
+      _id: id,
+      userId: request.user.id
+    }).lean()
+
     if (!server) {
       return reply.status(404).send({ success: false, error: 'Server not found' })
     }
@@ -198,15 +178,15 @@ export async function serverRoutes(app) {
     }
   })
 
-  // ── PATCH /api/servers/:id ─────────────────────────────────────────────────
   app.patch('/api/servers/:id', async (request, reply) => {
     const { id }  = serverIdSchema.parse(request.params)
     const body    = updateServerSchema.parse(request.body)
 
-    const server = await prisma.server.findFirst({
-      where:   { id, userId: request.user.id },
-      include: { credential: true },
-    })
+    const server = await Server.findOne({
+      _id: id,
+      userId: request.user.id
+    }).lean()
+
     if (!server) {
       return reply.status(404).send({ success: false, error: 'Server not found' })
     }
@@ -221,52 +201,59 @@ export async function serverRoutes(app) {
     const credentialChanged = body.privateKey || body.password || body.authType || body.username
     const networkChanged    = body.ip || body.port
 
-    // Update server + credential in a transaction
-    const updated = await prisma.$transaction(async (tx) => {
-      const srv = await tx.server.update({
-        where: { id },
-        data: {
-          ...(body.name ? { name: body.name } : {}),
-          ...(body.port ? { sshPort: body.port } : {}),
-          ...((credentialChanged || networkChanged) ? { status: 'PENDING', errorMessage: null } : {}),
-        },
-      })
+    const updateData = {}
+    if (body.name) updateData.name = body.name
+    if (body.port) updateData.sshPort = body.port
+    if (credentialChanged || networkChanged) {
+      updateData.status = 'PENDING'
+      updateData.errorMessage = null
+    }
 
-      if (credentialChanged) {
-        await tx.serverCredential.update({
-          where: { serverId: id },
-          data: {
-            ...(body.authType    ? { authType:      body.authType }                      : {}),
-            ...(body.username    ? { sshUsername:   body.username }                      : {}),
-            ...(body.privateKey  ? { sshPrivateKey: body.privateKey, sshPassword: null } : {}),
-            ...(body.password    ? { sshPassword:   body.password,   sshPrivateKey: null } : {}),
-          },
-        })
+    await Server.updateOne({ _id: id }, { $set: updateData })
+
+    if (credentialChanged) {
+      const credUpdate = {
+        'credential.authType': body.authType ?? server.credential?.authType,
+        'credential.sshUsername': body.username ?? server.credential?.sshUsername,
       }
+      if (body.privateKey) {
+        credUpdate['credential.sshPrivateKey'] = body.privateKey
+        credUpdate['credential.sshPassword'] = null
+      }
+      if (body.password) {
+        credUpdate['credential.sshPassword'] = body.password
+        credUpdate['credential.sshPrivateKey'] = null
+      }
+      await Server.updateOne({ _id: id }, { $set: credUpdate })
+    }
 
-      return srv
-    })
-
+    const updated = await Server.findById(id).lean()
     return { success: true, data: sanitizeServer(updated) }
   })
 
-  // ── DELETE /api/servers/:id ────────────────────────────────────────────────
   app.delete('/api/servers/:id', async (request, reply) => {
     const { id } = serverIdSchema.parse(request.params)
 
-    const server = await prisma.server.findFirst({
-      where:   { id, userId: request.user.id },
-      include: { _count: { select: { services: { where: { type: 'DATABASE' } } } } },
+    const server = await Server.findOne({
+      _id: id,
+      userId: request.user.id
     })
+
     if (!server) {
       return reply.status(404).send({ success: false, error: 'Server not found' })
     }
 
-    await prisma.server.delete({ where: { id } })
+    const { Service } = await import('../models/index.js')
+    const count = await Service.countDocuments({
+      serverId: server._id,
+      type: 'DATABASE'
+    })
+
+    await Server.deleteOne({ _id: id })
 
     return {
       success: true,
-      message: `Server "${server.name}" and its ${server._count.services} database(s) deleted.`,
+      message: `Server "${server.name}" and its ${count} database(s) deleted.`,
     }
   })
 }

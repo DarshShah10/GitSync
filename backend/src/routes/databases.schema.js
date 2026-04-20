@@ -1,22 +1,16 @@
 import { z } from 'zod'
 
-// ── Shared ─────────────────────────────────────────────────────────────────
-
 export const serviceIdSchema = z.object({
-  id: z.string().uuid('Invalid service ID'),
+  id: z.string().min(1, 'Invalid service ID'),
 })
 
-// Keep backward-compat alias used by old imports
 export const databaseIdSchema = serviceIdSchema
 
 export const backupPolicyIdSchema = z.object({
-  id: z.string().uuid('Invalid backup policy ID'),
+  id: z.string().min(1, 'Invalid backup policy ID'),
 })
 
-// Keep backward-compat alias
 export const backupConfigIdSchema = backupPolicyIdSchema
-
-// ── Service / Database creation ────────────────────────────────────────────
 
 const DATABASE_ENGINES = [
   'MONGODB', 'POSTGRESQL', 'MYSQL', 'MARIADB',
@@ -24,10 +18,9 @@ const DATABASE_ENGINES = [
 ]
 
 export const createDatabaseSchema = z.object({
-  serverId: z.string().uuid('Invalid server ID'),
+  serverId: z.string().min(1, 'Invalid server ID'),
 
-  // Optional: if not provided, the route falls back to req.user's default env
-  environmentId: z.string().uuid('Invalid environment ID').optional(),
+  environmentId: z.string().min(1, 'Invalid environment ID').optional(),
 
   name: z
     .string()
@@ -44,13 +37,9 @@ export const createDatabaseSchema = z.object({
     .min(8, 'Password must be at least 8 characters')
     .max(128),
 
-  dbUser: z.string().min(1).max(63).optional().default('dbshift'),
+  dbUser: z.string().min(1).max(63).optional().default('gitsync'),
   dbName: z.string().min(1).max(63).optional(),
 })
-
-// ── Backup policy creation (inline S3 creds) ──────────────────────────────
-// S3 creds are accepted inline here and stored as an S3Credential.
-// The frontend doesn't need to manage S3Credential objects separately yet.
 
 export const createBackupConfigSchema = z.object({
   s3Endpoint:  z.string().url('Must be a valid URL').optional().or(z.literal('')),

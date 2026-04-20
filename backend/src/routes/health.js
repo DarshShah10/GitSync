@@ -1,13 +1,7 @@
-import { prisma } from '../db/prisma.js'
+import { mongoose } from '../db/mongo.js'
 import { redis } from '../db/redis.js'
 
-/**
- * Health check routes.
- * GET /health        → basic liveness probe
- * GET /health/ready  → readiness probe (checks DB + Redis)
- */
 export async function healthRoutes(app) {
-  // ── Liveness: is the process alive? ────────────────────────────────
   app.get('/health', {
     schema: {
       tags: ['Health'],
@@ -33,7 +27,6 @@ export async function healthRoutes(app) {
     }
   })
 
-  // ── Readiness: are all dependencies reachable? ──────────────────────
   app.get('/health/ready', {
     schema: {
       tags: ['Health'],
@@ -45,17 +38,16 @@ export async function healthRoutes(app) {
       redis: false,
     }
 
-    // Check PostgreSQL
     try {
-      await prisma.$queryRaw`SELECT 1`
-      checks.database = true
+      if (mongoose.connection.readyState === 1) {
+        checks.database = true
+      }
     } catch (err) {
       app.log.error({ err }, 'Database health check failed')
     }
 
-    // Check Redis
     try {
-      await redis.connect().catch(() => {}) // no-op if already connected
+      await redis.connect().catch(() => {})
       await redis.ping()
       checks.redis = true
     } catch (err) {

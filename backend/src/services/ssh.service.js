@@ -192,11 +192,11 @@ export async function testConnection(serverConfig) {
   try {
     const { stdout, code } = await runCommand(
       serverConfig,
-      'echo __dbshift_ok__',
+      'echo __gitsync_ok__',
       { timeout: config.ssh.connectTimeout }
     )
 
-    const ok = code === 0 && stdout.includes('__dbshift_ok__')
+    const ok = code === 0 && stdout.includes('__gitsync_ok__')
     return { ok, latencyMs: Date.now() - start }
   } catch (err) {
     return {

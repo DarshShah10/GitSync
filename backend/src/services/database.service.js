@@ -158,7 +158,7 @@ function yamlDqEscape(str) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function composeDir(containerName) {
-  return `/opt/dbshift/databases/${containerName}`
+  return `/opt/gitsync/databases/${containerName}`
 }
 
 function composePath(containerName) {
@@ -300,7 +300,7 @@ export async function findFreePort(serverConfig, startPort = 20000, endPort = 30
 /**
  * Provisions a new database using Docker Compose (Coolify-style):
  *  1. Pulls images
- *  2. Writes a compose file to /opt/dbshift/databases/<name>/ on the server
+ *  2. Writes a compose file to /opt/gitsync/databases/<name>/ on the server
  *  3. Runs `docker compose up -d`
  *  4. Waits for the db service to reach health=healthy (native Docker healthcheck)
  *  5. Returns containerName and volumeName
@@ -315,8 +315,8 @@ export async function provisionDatabase(serverConfig, dbConfig, opts = {}) {
 
   const ts            = Date.now()
   const sanitized     = dbConfig.name.toLowerCase().replace(/[^a-z0-9]/g, '_')
-  const containerName = `dbshift_${sanitized}_${ts}`
-  const volumeName    = `dbshift_${sanitized}_${ts}_data`
+  const containerName = `gitsync_${sanitized}_${ts}`
+  const volumeName    = `gitsync_${sanitized}_${ts}_data`
   const cDir          = composeDir(containerName)
   const cPath         = composePath(containerName)
 

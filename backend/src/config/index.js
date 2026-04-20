@@ -16,13 +16,13 @@ export const config = {
   app: {
     env: optionalEnv('NODE_ENV', 'development'),
     port: parseInt(optionalEnv('PORT', '3001'), 10),
-    host: optionalEnv('HOST', '0.0.0.0'),
+    host: optionalEnv('HOST', 'localhost'),
     isDev: optionalEnv('NODE_ENV', 'development') === 'development',
     isProd: optionalEnv('NODE_ENV', 'development') === 'production',
   },
 
-  database: {
-    url: requireEnv('DATABASE_URL'),
+  db: {
+    mongoUri: requireEnv('MONGO_URI'),
   },
 
   redis: {

@@ -1,5 +1,5 @@
 {
-  "name": "@dbshift/backend",
+  "name": "@gitsync/backend",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -7,33 +7,23 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:migrate:prod": "prisma migrate deploy",
-    "db:studio": "prisma studio",
-    "db:seed": "node prisma/seed.js",
-    "db:migrate:v2": "node scripts/migrate-v1-v2.js"
-  },
-  "prisma": {
-    "seed": "node prisma/seed.js"
+    "db:seed": "node src/db/seed.js"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",
     "@fastify/helmet": "^11.1.1",
     "@fastify/rate-limit": "^9.1.0",
-    "@prisma/client": "^5.14.0",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.12.0",
     "dotenv": "^16.4.5",
     "fastify": "^4.28.1",
     "ioredis": "^5.4.1",
+    "mongoose": "^8.4.0",
     "pino": "^9.3.2",
     "pino-pretty": "^11.2.1",
     "ssh2": "^1.16.0",
     "uuid": "^10.0.0",
     "zod": "^3.23.8"
   },
-  "devDependencies": {
-    "prisma": "^5.14.0"
-  }
+  "devDependencies": {}
 }

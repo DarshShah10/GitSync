@@ -1,6 +1,6 @@
 import { Worker } from 'bullmq'
 import { createRedisConnection } from '../db/redis.js'
-import { prisma } from '../db/prisma.js'
+import { BackupPolicy, BackupRun, Service, Server, S3Credential } from '../models/index.js'
 import { QUEUE_NAMES } from './queues.js'
 import { runBackup } from '../services/backup.service.js'
 
@@ -15,24 +15,18 @@ async function processBackupRun(job) {
     console.log(line)
   }
 
-  // Load BackupPolicy → S3Credential + Service → Server + Credential
-  const policy = await prisma.backupPolicy.findUnique({
-    where:   { id: policyId },
-    include: {
-      s3Credential: true,
-      service: {
-        include: { server: { include: { credential: true } } },
-      },
-    },
-  })
+  const policy = await BackupPolicy.findById(policyId).lean()
+  if (!policy) throw new Error(`BackupPolicy ${policyId} not found`)
 
-  if (!policy)             throw new Error(`BackupPolicy ${policyId} not found`)
-  if (!policy.s3Credential) throw new Error(`BackupPolicy ${policyId} has no S3 credential`)
+  const s3Cred = await S3Credential.findById(policy.s3CredentialId).lean()
+  if (!s3Cred) throw new Error(`BackupPolicy ${policyId} has no S3 credential`)
 
-  const { service }  = policy
-  const { server }   = service
+  const service = await Service.findById(policy.serviceId).lean()
+  if (!service) throw new Error(`Service ${policy.serviceId} not found`)
 
-  // Re-check service status at job pickup
+  const server = await Server.findById(service.serverId).lean()
+  if (!server) throw new Error(`Server ${service.serverId} not found`)
+
   if (service.status !== 'RUNNING') {
     throw new Error(
       `Database "${service.name}" is not running (status: ${service.status}). Cannot run backup.`
@@ -42,23 +36,22 @@ async function processBackupRun(job) {
   const cfg = service.config ?? {}
 
   log(`Starting backup for ${service.name} (${cfg.dbEngine})`)
-  log(`Target: s3://${policy.s3Credential.bucket}/${policy.s3PathPrefix ?? service.name}/`)
+  log(`Target: s3://${s3Cred.bucket}/${policy.s3PathPrefix ?? service.name}/`)
 
-  // Mark the run as RUNNING
-  await prisma.backupRun.update({
-    where: { id: runId },
-    data:  { status: 'RUNNING', startedAt: new Date() },
-  })
+  await BackupRun.updateOne(
+    { _id: runId },
+    { $set: { status: 'RUNNING', startedAt: new Date() } }
+  )
 
   await job.updateProgress(10)
 
   const serverConfig = {
     ip:         server.ip,
     port:       server.sshPort,
-    username:   server.credential.sshUsername,
-    authType:   server.credential.authType,
-    password:   server.credential.sshPassword   ?? null,
-    privateKey: server.credential.sshPrivateKey ?? null,
+    username:   server.credential?.sshUsername ?? 'root',
+    authType:   server.credential?.authType ?? 'PASSWORD',
+    password:   server.credential?.sshPassword   ?? null,
+    privateKey: server.credential?.sshPrivateKey ?? null,
   }
 
   const dbConfig = {
@@ -71,14 +64,13 @@ async function processBackupRun(job) {
     containerName: service.containerName,
   }
 
-  // Map new S3Credential field names → the interface backup.service.js expects
   const backupConfig = {
-    s3Endpoint:  policy.s3Credential.endpoint  ?? null,
-    s3Bucket:    policy.s3Credential.bucket,
-    s3AccessKey: policy.s3Credential.accessKey,
-    s3SecretKey: policy.s3Credential.secretKey,
-    s3Region:    policy.s3Credential.region,
-    s3Path:      policy.s3PathPrefix ?? service.name, // folder prefix — runBackup appends filename
+    s3Endpoint:  s3Cred.endpoint  ?? null,
+    s3Bucket:    s3Cred.bucket,
+    s3AccessKey: s3Cred.accessKey,
+    s3SecretKey: s3Cred.secretKey,
+    s3Region:    s3Cred.region,
+    s3Path:      policy.s3PathPrefix ?? service.name,
   }
 
   await job.updateProgress(20)
@@ -92,19 +84,21 @@ async function processBackupRun(job) {
 
   await job.updateProgress(95)
 
-  await prisma.backupRun.update({
-    where: { id: runId },
-    data: {
-      status:       'SUCCESS',
-      s3Key,                          // full object key — policy.s3PathPrefix is never overwritten
-      sizeBytes:    BigInt(sizeBytes),
-      completedAt:  new Date(),
-      errorMessage: null,
-    },
-  })
+  await BackupRun.updateOne(
+    { _id: runId },
+    {
+      $set: {
+        status:       'SUCCESS',
+        s3Key,
+        sizeBytes:    sizeBytes,
+        completedAt:  new Date(),
+        errorMessage: null,
+      }
+    }
+  )
 
   await job.updateProgress(100)
-  log(`Backup complete: ${s3Key} ✓`)
+  log(`Backup complete: ${s3Key}`)
 
   return { policyId, runId, s3Key, sizeBytes }
 }
@@ -128,14 +122,16 @@ export function startBackupWorker() {
 
     if (job?.data?.runId) {
       try {
-        await prisma.backupRun.update({
-          where: { id: job.data.runId },
-          data: {
-            status:       'FAILED',
-            errorMessage: err.message,
-            completedAt:  new Date(),
-          },
-        })
+        await BackupRun.updateOne(
+          { _id: job.data.runId },
+          {
+            $set: {
+              status:       'FAILED',
+              errorMessage: err.message,
+              completedAt:  new Date(),
+            }
+          }
+        )
       } catch (_) {}
     }
   })
