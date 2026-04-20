@@ -1,3 +1,8 @@
+// ============================================================
+// Prisma Schema — Coolify-like Deployment Platform
+// Database: PostgreSQL  |  v4 — clean, no redundant models
+// ============================================================
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,121 +12,495 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum AuthType {
+  SSH_KEY
+  PASSWORD
+}
+
+enum TeamRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
 enum ServerStatus {
-  PENDING
-  VERIFYING
-  READY
+  CONNECTED
   UNREACHABLE
-  ERROR
+  PENDING
+  MAINTENANCE
 }
 
-enum DatabaseType {
-  MONGODB
-  POSTGRESQL
-  MYSQL
-  MARIADB
-  REDIS
-  KEYDB
-  DRAGONFLY
-  CLICKHOUSE
+enum OsType {
+  UBUNTU
+  DEBIAN
+  CENTOS
+  ALPINE
+  FEDORA
+  ARCH
+  OTHER
 }
 
-enum DatabaseStatus {
-  CREATING
+// DATABASE is just another service type — runs as a Docker
+// container on a server, lives inside a project environment.
+// No separate Database model needed.
+enum ServiceType {
+  APP
+  DATABASE   // e.g. postgres, mysql, redis, mongo — config JSONB holds db-specific fields
+  STATIC
+  DOCKER_COMPOSE
+  WORKER
+}
+
+enum ServiceStatus {
   RUNNING
   STOPPED
   ERROR
+  DEPLOYING
+  BUILDING
+  RESTARTING
 }
 
-enum BackupStatus {
+enum EnvVarScope {
+  BUILD    // injected at build time only
+  RUNTIME  // injected at runtime only
+  ALL      // injected at both stages
+}
+
+enum DeploymentStatus {
+  QUEUED
+  BUILDING
+  DEPLOYING
+  SUCCESS
+  FAILED
+  CANCELLED
+}
+
+enum DeploymentTrigger {
+  MANUAL
+  GIT_PUSH
+  WEBHOOK
+  SCHEDULE
+  API
+}
+
+enum BackupType {
+  FULL
+  INCREMENTAL
+}
+
+enum BackupRunStatus {
   PENDING
   RUNNING
   SUCCESS
   FAILED
 }
 
-enum AuthType {
-  PASSWORD
-  KEY
+// ============================================================
+// USER & TEAM
+// ============================================================
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  avatarUrl    String?  @map("avatar_url")
+  isVerified   Boolean  @default(false) @map("is_verified")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  memberships   TeamMember[]
+  servers       Server[]
+  projects      Project[]
+  apiTokens     ApiToken[]
+  s3Credentials S3Credential[]
+
+  @@map("users")
 }
 
+model Team {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  members       TeamMember[]
+  servers       Server[]
+  projects      Project[]
+  apiTokens     ApiToken[]
+  s3Credentials S3Credential[]
+
+  @@map("teams")
+}
+
+// OWNER is assigned when the team is created.
+// App layer must enforce: exactly one OWNER per team, OWNER cannot leave.
+model TeamMember {
+  id       String   @id @default(uuid())
+  teamId   String   @map("team_id")
+  userId   String   @map("user_id")
+  role     TeamRole @default(MEMBER)
+  joinedAt DateTime @default(now()) @map("joined_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@map("team_members")
+}
+
+// ============================================================
+// SERVER
+//
+// usedPorts (JSONB) tracks every port on this VM dynamically.
+// Updated whenever a service starts or stops.
+//
+// Shape of each element:
+//   {
+//     port:      number,
+//     process:   string,           // e.g. "nginx", "postgres"
+//     serviceId: string | null,    // FK to Service.id
+//     status:    "in_use" | "reserved" | "free"
+//   }
+//
+// ServerCredential is a separate 1-to-1 table on purpose —
+// list/dashboard queries on Server never touch SSH keys or
+// passwords. Only the SSH connection handler loads it.
+// ============================================================
+
 model Server {
-  id            String       @id @default(uuid())
-  name          String
-  ip            String
-  port          Int          @default(22)
-  username      String       @default("root")
+  id         String       @id @default(uuid())
+  userId     String       @map("user_id")
+  teamId     String?      @map("team_id")
+  name       String
+  ipAddress  String       @map("ip_address")
+  sshPort    Int          @default(22) @map("ssh_port")
+  osType     OsType       @default(OTHER) @map("os_type")
+  status     ServerStatus @default(PENDING)
+  lastPingAt DateTime?    @map("last_ping_at")
+  usedPorts  Json         @default("[]") @map("used_ports")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
 
-  // Auth — one of these will be set depending on authType
-  authType      AuthType     @default(KEY)
-  privateKey    String?      // null when using password auth
-  password      String?      // null when using key auth
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team       Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  credential ServerCredential?
+  services   Service[]
 
-  status        ServerStatus @default(PENDING)
-  dockerVersion String?
-  lastCheckedAt DateTime?
-  errorMessage  String?
-
-  databases     Database[]
-
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-
+  @@index([userId])
+  @@index([teamId])
+  @@index([status])
   @@map("servers")
 }
 
-model Database {
-  id               String         @id @default(uuid())
-  name             String
-  type             DatabaseType
-  status           DatabaseStatus @default(CREATING)
+// Loaded only when opening an SSH connection — never in list queries.
+// Encrypt sshPrivateKey and sshPassword at the app layer (AES-256).
+model ServerCredential {
+  id            String   @id @default(uuid())
+  serverId      String   @unique @map("server_id")
+  authType      AuthType @map("auth_type")
+  sshUsername   String   @map("ssh_username")
+  sshPrivateKey String?  @map("ssh_private_key") // set when authType = SSH_KEY
+  sshPassword   String?  @map("ssh_password")    // set when authType = PASSWORD
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
-  containerId      String?
-  containerName    String?
-  internalPort     Int
+  server Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
 
-  dbUser           String?
-  dbPassword       String
-  dbName           String?
-
-  isPublic         Boolean        @default(false)
-  publicPort       Int?
-  connectionString String?
-
-  serverId         String
-  server           Server         @relation(fields: [serverId], references: [id], onDelete: Cascade)
-
-  backups          Backup[]
-
-  errorMessage     String?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-
-  @@map("databases")
+  @@map("server_credentials")
 }
 
-model Backup {
-  id           String       @id @default(uuid())
-  status       BackupStatus @default(PENDING)
+// ============================================================
+// PROJECT -> ENVIRONMENT -> SERVICE
+//
+// Project     = the product / repo grouping
+// Environment = named slot inside the project (prod, staging, dev)
+// Service     = anything that runs: app, worker, static site,
+//               OR a database container — they are all services.
+// ============================================================
 
-  s3Endpoint   String
-  s3Bucket     String
-  s3AccessKey  String
-  s3SecretKey  String
-  s3Region     String       @default("auto")
-  s3Path       String?
+model Project {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  teamId      String?  @map("team_id")
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
-  schedule     String?
-  sizeBytes    BigInt?
-  errorMessage String?
-  startedAt    DateTime?
-  completedAt  DateTime?
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team         Team?         @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  environments Environment[]
 
-  databaseId   String
-  database     Database     @relation(fields: [databaseId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@map("projects")
+}
 
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+model Environment {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  name      String
+  slug      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  @@map("backups")
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  services Service[]
+
+  @@unique([projectId, slug])
+  @@map("environments")
+}
+
+// ============================================================
+// SERVICE
+//
+// A Service is anything deployable — including databases.
+// Source-specific and type-specific config lives in the `config`
+// JSONB field so the table stays lean regardless of service type.
+//
+// config examples by ServiceType:
+//
+//   APP (git source):
+//   {
+//     "gitRepoUrl": "https://github.com/org/repo",
+//     "branch": "main",
+//     "buildPack": "NIXPACKS",
+//     "dockerfilePath": null,
+//     "buildArgs": {}
+//   }
+//
+//   APP (docker image):
+//   {
+//     "dockerImage": "nginx:alpine",
+//     "registryUrl": null
+//   }
+//
+//   DOCKER_COMPOSE:
+//   {
+//     "composeFilePath": "./docker-compose.yml"
+//   }
+//
+//   DATABASE:
+//   {
+//     "dbType": "POSTGRESQL",        // POSTGRESQL | MYSQL | MARIADB | MONGODB | REDIS | etc.
+//     "dockerImage": "postgres:16",
+//     "dbUser": "myuser",
+//     "dbPassword": "<encrypted>",   // encrypt at app layer
+//     "dbName": "mydb",
+//     "connectionString": "<encrypted>"
+//   }
+//
+// lastCommitHash + lastDeployedAt are denormalised here so the
+// dashboard never needs to JOIN into deployments.
+// ============================================================
+
+model Service {
+  id             String        @id @default(uuid())
+  environmentId  String        @map("environment_id")
+  serverId       String        @map("server_id")
+  name           String
+  type           ServiceType
+  status         ServiceStatus @default(STOPPED)
+
+  // Networking
+  domain         String?
+  internalPort   Int?          @map("internal_port") // port inside the container
+  exposedPort    Int?          @map("exposed_port")  // port mapped on the host VM
+
+  // All type-specific config in one JSONB field
+  config         Json          @default("{}")
+
+  // Denormalised — updated on successful deploy, avoids joining Deployment
+  lastCommitHash String?       @map("last_commit_hash")
+  lastDeployedAt DateTime?     @map("last_deployed_at")
+
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  environment    Environment     @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  server         Server          @relation(fields: [serverId], references: [id], onDelete: Restrict)
+  envVars        ServiceEnvVar[]
+  deployments    Deployment[]
+  backupPolicies BackupPolicy[]  // only relevant when type = DATABASE
+
+  @@index([environmentId])
+  @@index([serverId])
+  @@index([status])
+  @@map("services")
+}
+
+model ServiceEnvVar {
+  id        String      @id @default(uuid())
+  serviceId String      @map("service_id")
+  key       String
+  value     String      // encrypt at app layer when isSecret = true
+  isSecret  Boolean     @default(false) @map("is_secret")
+  scope     EnvVarScope @default(ALL)
+  createdAt DateTime    @default(now()) @map("created_at")
+  updatedAt DateTime    @updatedAt @map("updated_at")
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, key])
+  @@map("service_env_vars")
+}
+
+// ============================================================
+// DEPLOYMENTS
+//
+// Logs are split into DeploymentLog (one row per line) so you
+// can stream them to the UI in real time without loading a
+// massive text blob. isError separates stderr from stdout.
+// ============================================================
+
+model Deployment {
+  id         String            @id @default(uuid())
+  serviceId  String            @map("service_id")
+  status     DeploymentStatus  @default(QUEUED)
+  trigger    DeploymentTrigger @default(MANUAL)
+  commitHash String?           @map("commit_hash")
+  startedAt  DateTime?         @map("started_at")
+  finishedAt DateTime?         @map("finished_at")
+  createdAt  DateTime          @default(now()) @map("created_at")
+
+  service Service         @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  logs    DeploymentLog[]
+
+  @@index([serviceId])
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+  @@map("deployments")
+}
+
+model DeploymentLog {
+  id           String   @id @default(uuid())
+  deploymentId String   @map("deployment_id")
+  line         Int
+  output       String
+  isError      Boolean  @default(false) @map("is_error")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  deployment Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+
+  @@index([deploymentId, line])
+  @@map("deployment_logs")
+}
+
+// ============================================================
+// S3 BACKUP SYSTEM
+//
+// Only applies to services where type = DATABASE.
+//
+//   S3Credential  — bucket config stored once, shared across
+//                   any number of backup policies.
+//                   accessKey + secretKey encrypted at app layer.
+//
+//   BackupPolicy  — "back up THIS database service on THIS
+//                   schedule to THAT S3 bucket."
+//                   Holds cron schedule, retention, backup type.
+//                   Points to a Service (type=DATABASE).
+//
+//   BackupRun     — one row per execution. Audit log of what
+//                   ran, when, how big, where the file landed.
+//                   Never stores credentials directly.
+// ============================================================
+
+// Works with AWS S3, Cloudflare R2, MinIO, Backblaze B2,
+// DigitalOcean Spaces — anything S3-compatible.
+model S3Credential {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id") // null if team-owned
+  teamId    String?  @map("team_id") // null if user-owned
+  name      String                   // friendly label e.g. "R2 — production"
+  endpoint  String                   // e.g. https://xxx.r2.cloudflarestorage.com
+  bucket    String
+  region    String   @default("auto")
+  accessKey String   @map("access_key") // encrypt at app layer
+  secretKey String   @map("secret_key") // encrypt at app layer
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user           User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team           Team?          @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  backupPolicies BackupPolicy[]
+
+  @@index([userId])
+  @@index([teamId])
+  @@map("s3_credentials")
+}
+
+// schedule is a standard cron expression e.g. "0 2 * * *" = 2 AM daily.
+// retentionDays: BackupRuns older than this are pruned (0 = keep forever).
+// s3PathPrefix: folder inside the bucket e.g. "backups/prod-postgres/"
+model BackupPolicy {
+  id             String     @id @default(uuid())
+  serviceId      String     @map("service_id")      // must be a Service with type = DATABASE
+  s3CredentialId String     @map("s3_credential_id")
+  isEnabled      Boolean    @default(true) @map("is_enabled")
+  schedule       String                              // cron expression
+  backupType     BackupType @default(FULL) @map("backup_type")
+  retentionDays  Int        @default(30) @map("retention_days")
+  s3PathPrefix   String?    @map("s3_path_prefix")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  service      Service      @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  s3Credential S3Credential @relation(fields: [s3CredentialId], references: [id], onDelete: Restrict)
+  runs         BackupRun[]
+
+  @@index([serviceId])
+  @@map("backup_policies")
+}
+
+// One row per backup execution.
+// s3Key = final object path inside the bucket,
+// e.g. "backups/prod-postgres/2025-04-20T02-00-00.sql.gz"
+model BackupRun {
+  id             String          @id @default(uuid())
+  backupPolicyId String          @map("backup_policy_id")
+  status         BackupRunStatus @default(PENDING)
+  backupType     BackupType      @map("backup_type")
+  s3Key          String?         @map("s3_key")
+  sizeBytes      BigInt?         @map("size_bytes")
+  errorMessage   String?         @map("error_message")
+  startedAt      DateTime?       @map("started_at")
+  completedAt    DateTime?       @map("completed_at")
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  policy BackupPolicy @relation(fields: [backupPolicyId], references: [id], onDelete: Cascade)
+
+  @@index([backupPolicyId])
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+  @@map("backup_runs")
+}
+
+// ============================================================
+// API TOKENS
+//
+// Scoped to a user OR a team — app layer enforces one is set.
+// Only the hash is stored. Raw token shown once at creation.
+// ============================================================
+
+model ApiToken {
+  id        String    @id @default(uuid())
+  userId    String?   @map("user_id")
+  teamId    String?   @map("team_id")
+  name      String
+  tokenHash String    @unique @map("token_hash")
+  lastUsed  DateTime? @map("last_used")
+  expiresAt DateTime? @map("expires_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team Team? @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([teamId])
+  @@map("api_tokens")
 }
