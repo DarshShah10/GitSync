@@ -1,5 +1,7 @@
 import api from './api.js'
 
+export const getServers = () => api.get('/api/servers').then(r => r.data)
+
 export const serversApi = {
   list:           ()         => api.get('/api/servers').then(r => r.data.data),
   get:            (id)       => api.get(`/api/servers/${id}`).then(r => r.data.data),

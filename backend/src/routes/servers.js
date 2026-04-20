@@ -7,22 +7,47 @@ import {
   serverIdSchema,
 } from './servers.schema.js'
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
- * Never return credentials in API responses.
+ * Strip sensitive credential fields from API responses.
+ * The credential sub-object is removed entirely — only metadata is returned.
  */
 function sanitizeServer(server) {
-  const { privateKey, password, ...safe } = server
+  const { credential, ...safe } = server
   return safe
 }
 
+/**
+ * Build the serverConfig object required by ssh.service.js.
+ * Reads from the ServerCredential relation — must be included in the Prisma query.
+ */
+function buildServerConfig(server) {
+  const cred = server.credential
+  if (!cred) throw new Error(`Server ${server.id} has no credential record`)
+  return {
+    ip:         server.ip,
+    port:       server.sshPort,
+    username:   cred.sshUsername,
+    authType:   cred.authType,        // 'SSH_KEY' | 'PASSWORD'
+    password:   cred.sshPassword   ?? null,
+    privateKey: cred.sshPrivateKey ?? null,
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Routes
+// ─────────────────────────────────────────────────────────────────────────────
+
 export async function serverRoutes(app) {
 
-  // ── POST /api/servers ─────────────────────────────────────────────
+  // ── POST /api/servers ──────────────────────────────────────────────────────
   app.post('/api/servers', async (request, reply) => {
     const body = createServerSchema.parse(request.body)
 
-    // Extra key validation when using key auth
-    if (body.authType === 'KEY' && body.privateKey) {
+    if (body.authType === 'SSH_KEY' && body.privateKey) {
       const keyCheck = validatePrivateKey(body.privateKey)
       if (!keyCheck.valid) {
         return reply.status(400).send({ success: false, error: keyCheck.error })
@@ -31,15 +56,22 @@ export async function serverRoutes(app) {
 
     const server = await prisma.server.create({
       data: {
-        name:       body.name,
-        ip:         body.ip,
-        port:       body.port,
-        username:   body.username,
-        authType:   body.authType,
-        privateKey: body.authType === 'KEY'      ? body.privateKey : null,
-        password:   body.authType === 'PASSWORD' ? body.password   : null,
-        status:     'PENDING',
+        userId:  request.user.id,
+        name:    body.name,
+        ip:      body.ip,
+        sshPort: body.port ?? 22,
+        status:  'PENDING',
+        // Credentials stored in a separate table — never returned in list queries
+        credential: {
+          create: {
+            authType:      body.authType,
+            sshUsername:   body.username ?? 'root',
+            sshPrivateKey: body.authType === 'SSH_KEY'   ? body.privateKey : null,
+            sshPassword:   body.authType === 'PASSWORD'  ? body.password   : null,
+          },
+        },
       },
+      include: { credential: true },
     })
 
     const job = await serverVerifyQueue.add(
@@ -57,25 +89,32 @@ export async function serverRoutes(app) {
     })
   })
 
-  // ── GET /api/servers ──────────────────────────────────────────────
+  // ── GET /api/servers ───────────────────────────────────────────────────────
   app.get('/api/servers', async (request, reply) => {
     const servers = await prisma.server.findMany({
+      where:   { userId: request.user.id },
       orderBy: { createdAt: 'desc' },
-      include: { _count: { select: { databases: true } } },
+      include: {
+        _count: { select: { services: { where: { type: 'DATABASE' } } } },
+      },
     })
 
     return { success: true, data: servers.map(sanitizeServer) }
   })
 
-  // ── GET /api/servers/:id ──────────────────────────────────────────
+  // ── GET /api/servers/:id ───────────────────────────────────────────────────
   app.get('/api/servers/:id', async (request, reply) => {
     const { id } = serverIdSchema.parse(request.params)
 
-    const server = await prisma.server.findUnique({
-      where: { id },
+    const server = await prisma.server.findFirst({
+      where:   { id, userId: request.user.id },
       include: {
-        databases: {
-          select: { id: true, name: true, type: true, status: true, createdAt: true },
+        services: {
+          where:   { type: 'DATABASE' },
+          select:  {
+            id: true, name: true, status: true, createdAt: true,
+            config: true,  // contains dbEngine
+          },
           orderBy: { createdAt: 'desc' },
         },
       },
@@ -88,18 +127,15 @@ export async function serverRoutes(app) {
     return { success: true, data: sanitizeServer(server) }
   })
 
-  // ── GET /api/servers/:id/status ───────────────────────────────────
+  // ── GET /api/servers/:id/status ────────────────────────────────────────────
   app.get('/api/servers/:id/status', async (request, reply) => {
     const { id } = serverIdSchema.parse(request.params)
 
-    const server = await prisma.server.findUnique({
-      where: { id },
+    const server = await prisma.server.findFirst({
+      where: { id, userId: request.user.id },
       select: {
-        id: true,
-        status: true,
-        dockerVersion: true,
-        errorMessage: true,
-        lastCheckedAt: true,
+        id: true, status: true, dockerVersion: true,
+        errorMessage: true, lastCheckedAt: true,
       },
     })
 
@@ -110,18 +146,20 @@ export async function serverRoutes(app) {
     return { success: true, data: server }
   })
 
-  // ── POST /api/servers/:id/verify ──────────────────────────────────
+  // ── POST /api/servers/:id/verify ───────────────────────────────────────────
   app.post('/api/servers/:id/verify', async (request, reply) => {
     const { id } = serverIdSchema.parse(request.params)
 
-    const server = await prisma.server.findUnique({ where: { id } })
+    const server = await prisma.server.findFirst({
+      where: { id, userId: request.user.id },
+    })
     if (!server) {
       return reply.status(404).send({ success: false, error: 'Server not found' })
     }
 
     await prisma.server.update({
       where: { id },
-      data: { status: 'PENDING', errorMessage: null },
+      data:  { status: 'PENDING', errorMessage: null },
     })
 
     const existingJob = await serverVerifyQueue.getJob(`verify-${id}`)
@@ -136,23 +174,19 @@ export async function serverRoutes(app) {
     return { success: true, message: 'Verification re-queued', jobId: job.id }
   })
 
-  // ── POST /api/servers/:id/test-connection ─────────────────────────
+  // ── POST /api/servers/:id/test-connection ──────────────────────────────────
   app.post('/api/servers/:id/test-connection', async (request, reply) => {
     const { id } = serverIdSchema.parse(request.params)
 
-    const server = await prisma.server.findUnique({ where: { id } })
+    const server = await prisma.server.findFirst({
+      where:   { id, userId: request.user.id },
+      include: { credential: true },
+    })
     if (!server) {
       return reply.status(404).send({ success: false, error: 'Server not found' })
     }
 
-    const result = await testConnection({
-      ip:         server.ip,
-      port:       server.port,
-      username:   server.username,
-      authType:   server.authType,
-      password:   server.password,
-      privateKey: server.privateKey,
-    })
+    const result = await testConnection(buildServerConfig(server))
 
     return {
       success: true,
@@ -164,12 +198,15 @@ export async function serverRoutes(app) {
     }
   })
 
-  // ── PATCH /api/servers/:id ────────────────────────────────────────
+  // ── PATCH /api/servers/:id ─────────────────────────────────────────────────
   app.patch('/api/servers/:id', async (request, reply) => {
     const { id }  = serverIdSchema.parse(request.params)
     const body    = updateServerSchema.parse(request.body)
 
-    const server = await prisma.server.findUnique({ where: { id } })
+    const server = await prisma.server.findFirst({
+      where:   { id, userId: request.user.id },
+      include: { credential: true },
+    })
     if (!server) {
       return reply.status(404).send({ success: false, error: 'Server not found' })
     }
@@ -181,28 +218,46 @@ export async function serverRoutes(app) {
       }
     }
 
-    // Changing auth credentials resets status
-    const credentialsChanged = body.privateKey || body.password || body.authType || body.ip || body.port || body.username
-    const updated = await prisma.server.update({
-      where: { id },
-      data: {
-        ...body,
-        ...(credentialsChanged ? { status: 'PENDING', errorMessage: null } : {}),
-      },
+    const credentialChanged = body.privateKey || body.password || body.authType || body.username
+    const networkChanged    = body.ip || body.port
+
+    // Update server + credential in a transaction
+    const updated = await prisma.$transaction(async (tx) => {
+      const srv = await tx.server.update({
+        where: { id },
+        data: {
+          ...(body.name ? { name: body.name } : {}),
+          ...(body.port ? { sshPort: body.port } : {}),
+          ...((credentialChanged || networkChanged) ? { status: 'PENDING', errorMessage: null } : {}),
+        },
+      })
+
+      if (credentialChanged) {
+        await tx.serverCredential.update({
+          where: { serverId: id },
+          data: {
+            ...(body.authType    ? { authType:      body.authType }                      : {}),
+            ...(body.username    ? { sshUsername:   body.username }                      : {}),
+            ...(body.privateKey  ? { sshPrivateKey: body.privateKey, sshPassword: null } : {}),
+            ...(body.password    ? { sshPassword:   body.password,   sshPrivateKey: null } : {}),
+          },
+        })
+      }
+
+      return srv
     })
 
     return { success: true, data: sanitizeServer(updated) }
   })
 
-  // ── DELETE /api/servers/:id ───────────────────────────────────────
+  // ── DELETE /api/servers/:id ────────────────────────────────────────────────
   app.delete('/api/servers/:id', async (request, reply) => {
     const { id } = serverIdSchema.parse(request.params)
 
-    const server = await prisma.server.findUnique({
-      where: { id },
-      include: { _count: { select: { databases: true } } },
+    const server = await prisma.server.findFirst({
+      where:   { id, userId: request.user.id },
+      include: { _count: { select: { services: { where: { type: 'DATABASE' } } } } },
     })
-
     if (!server) {
       return reply.status(404).send({ success: false, error: 'Server not found' })
     }
@@ -211,7 +266,7 @@ export async function serverRoutes(app) {
 
     return {
       success: true,
-      message: `Server "${server.name}" and its ${server._count.databases} database(s) deleted.`,
+      message: `Server "${server.name}" and its ${server._count.services} database(s) deleted.`,
     }
   })
 }

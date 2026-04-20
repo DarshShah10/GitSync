@@ -1,115 +1,45 @@
-# DBShift
+# GitSync
 
-Self-hosted database manager. Bring your own VPS, we run the databases on it.
+A premium, self-hosted PaaS and database manager. Bring your own VPS and manage everything visually from a sleek, localized control panel.
 
-## Stack
+## Architecture
 
-| Layer      | Tech                          |
-|------------|-------------------------------|
-| Backend    | Node.js · Fastify · JavaScript |
-| Frontend   | React · Vite                  |
-| State DB   | PostgreSQL · Prisma            |
-| Job Queue  | BullMQ · Redis                |
-| SSH        | ssh2                          |
+- **Backend:** Node.js, Fastify, Prisma, PostgreSQL
+- **Frontend:** React, Vite, React Query (Vanilla CSS)
+- **Infra Engine:** BullMQ, Redis, SSH2
 
-## Prerequisites
+## Quick Start
 
+### 1. External Requirements
 - Node.js 20+
-- Docker + Docker Compose (for local Postgres + Redis)
+- Docker & Docker Compose (for DBs)
 
----
-
-## Local Development Setup
-
-### 1. Clone and install
-
+### 2. Setup
 ```bash
 git clone <repo-url>
 cd dbshift
 npm install
-```
 
-### 2. Start Postgres + Redis
-
-```bash
+# Start core services
 docker compose up -d
-```
 
-### 3. Configure the backend
-
-```bash
+# Environment setup
 cp backend/.env.example backend/.env
+# Update DATABASE_URL and JWT_SECRET in .env
 ```
 
-Edit `backend/.env` and set at minimum:
-
-```env
-DATABASE_URL="postgresql://dbshift:dbshift_pass@localhost:5432/dbshift?schema=public"
-JWT_SECRET=<generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))">
-```
-
-### 4. Run database migrations
-
+### 3. Database Sync & Run
 ```bash
 cd backend
-npm run db:generate   # generate Prisma client
-npm run db:migrate    # run migrations (creates tables)
-cd ..
-```
+npm run db:generate
+npm run db:migrate 
 
-### 5. Start both servers
-
-```bash
+# Start the cluster
 npm run dev
 ```
 
-- **Backend** → http://localhost:3001
-- **Frontend** → http://localhost:5173
-- **Health check** → http://localhost:3001/health/ready
+### Entrypoints
+- **Frontend Dashboard:** http://localhost:5173 
+- **Backend API:** http://localhost:3001 
 
----
-
-## Project Structure
-
-```
-dbshift/
-├── backend/
-│   ├── prisma/
-│   │   └── schema.prisma         # DB schema (Server, Database, Backup)
-│   └── src/
-│       ├── config/index.js       # env var validation
-│       ├── db/
-│       │   ├── prisma.js         # Prisma client singleton
-│       │   └── redis.js          # Redis + BullMQ connections
-│       ├── middleware/
-│       │   └── errorHandler.js   # global error handling
-│       ├── routes/
-│       │   └── health.js         # GET /health, GET /health/ready
-│       └── index.js              # Fastify app + server bootstrap
-├── frontend/
-│   └── src/
-│       ├── components/
-│       │   └── Layout.jsx        # sidebar shell
-│       ├── pages/
-│       │   ├── HomePage.jsx      # overview dashboard
-│       │   └── NotFoundPage.jsx
-│       ├── services/
-│       │   └── api.js            # axios client
-│       ├── App.jsx               # router
-│       └── main.jsx              # entry point
-├── docker-compose.yml            # local Postgres + Redis
-└── package.json                  # monorepo root
-```
-
-## Build Phases
-
-| Phase | What                          | Status |
-|-------|-------------------------------|--------|
-| 1     | Project scaffold + Fastify server | ✅ Step 1 |
-| 1     | SSH service + server validation   | 🔜 Step 2 |
-| 1     | Server API routes (CRUD)          | 🔜 Step 3 |
-| 1     | Add Server UI                     | 🔜 Step 4 |
-| 2     | MongoDB container provisioning    | Upcoming |
-| 3     | Database dashboard                | Upcoming |
-| 4     | S3 backups                        | Upcoming |
-| 5     | Public access toggle              | Upcoming |
+*Self-hosting cloud infrastructure without the friction.*
