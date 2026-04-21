@@ -1,36 +1,14 @@
 import { Worker } from 'bullmq'
 import { createRedisConnection } from '../db/redis.js'
-import { prisma } from '../db/prisma.js'
+import { Server, Service } from '../models/index.js'
 import { QUEUE_NAMES } from './queues.js'
 import { runCommand } from '../services/ssh.service.js'
 
-/**
- * Runs every 60 seconds (repeatable BullMQ job).
- *
- * For every CONNECTED server, SSHs in and gets the list of running Docker containers.
- * Compares against our service records and syncs status:
- *   - DB says RUNNING but container is gone  → mark STOPPED
- *   - DB says STOPPED but container is found → mark RUNNING
- *
- * Also marks servers UNREACHABLE if SSH fails, and updates lastCheckedAt.
- */
 async function processServerCheck(job) {
-  const servers = await prisma.server.findMany({
-    where:   { status: 'CONNECTED' },
-    include: {
-      credential: true,
-      services: {
-        where: {
-          type:          'DATABASE',
-          status:        { in: ['RUNNING', 'STOPPED'] },
-          containerName: { not: null },
-        },
-      },
-    },
-  })
+  const servers = await Server.find({ status: 'CONNECTED' }).lean()
 
   let serversChecked = 0
-  let statusUpdated  = 0
+  let statusUpdated = 0
 
   for (const server of servers) {
     if (!server.credential) continue
@@ -59,46 +37,46 @@ async function processServerCheck(job) {
 
       serversChecked++
 
-      // Update lastCheckedAt on successful SSH
-      await prisma.server.update({
-        where: { id: server.id },
-        data:  { lastCheckedAt: new Date() },
-      })
+      await Server.updateOne(
+        { _id: server._id },
+        { $set: { lastCheckedAt: new Date() } }
+      )
 
-      for (const svc of server.services) {
+      const services = await Service.find({
+        serverId: server._id,
+        type:          'DATABASE',
+        status:        { $in: ['RUNNING', 'STOPPED'] },
+        containerName: { $ne: null },
+      }).lean()
+
+      for (const svc of services) {
         const isRunning = runningContainers.has(svc.containerName)
 
         if (svc.status === 'RUNNING' && !isRunning) {
-          await prisma.service.update({
-            where: { id: svc.id },
-            data:  { status: 'STOPPED' },
-          })
-          console.log(`[server-check] ${svc.name} on ${server.name}: RUNNING → STOPPED (container gone)`)
+          await Service.updateOne(
+            { _id: svc._id },
+            { $set: { status: 'STOPPED' } }
+          )
           statusUpdated++
         } else if (svc.status === 'STOPPED' && isRunning) {
-          await prisma.service.update({
-            where: { id: svc.id },
-            data:  { status: 'RUNNING', lastHealthCheckAt: new Date() },
-          })
-          console.log(`[server-check] ${svc.name} on ${server.name}: STOPPED → RUNNING (container found)`)
+          await Service.updateOne(
+            { _id: svc._id },
+            { $set: { status: 'RUNNING', lastHealthCheckAt: new Date() } }
+          )
           statusUpdated++
         } else if (svc.status === 'RUNNING' && isRunning) {
-          // Still running — just update health check timestamp
-          await prisma.service.update({
-            where: { id: svc.id },
-            data:  { lastHealthCheckAt: new Date() },
-          })
+          await Service.updateOne(
+            { _id: svc._id },
+            { $set: { lastHealthCheckAt: new Date() } }
+          )
         }
       }
     } catch (err) {
-      // Don't fail the whole job if one server is temporarily unreachable
-      console.error(`[server-check] Error checking server ${server.name} (${server.ip}):`, err.message)
-
       try {
-        await prisma.server.update({
-          where: { id: server.id },
-          data:  { status: 'UNREACHABLE', lastCheckedAt: new Date() },
-        })
+        await Server.updateOne(
+          { _id: server._id },
+          { $set: { status: 'UNREACHABLE', lastCheckedAt: new Date() } }
+        )
       } catch (_) {}
     }
   }
@@ -112,27 +90,13 @@ export function startServerCheckWorker() {
     processServerCheck,
     {
       connection:  createRedisConnection(),
-      concurrency: 1, // only one check run at a time — avoid overlapping SSH sessions
+      concurrency: 1,
     }
   )
 
-  worker.on('completed', (job, result) => {
-    if (result.statusUpdated > 0) {
-      console.log(
-        `[server-check] Job ${job.id}: checked ${result.serversChecked} server(s), ` +
-        `updated ${result.statusUpdated} status(es)`
-      )
-    }
-  })
-
   worker.on('failed', (job, err) => {
-    console.error(`[server-check] Job ${job?.id} failed:`, err.message)
+    job.log(`Job failed: ${err.message}`)
   })
 
-  worker.on('error', (err) => {
-    console.error('[server-check] Worker error:', err)
-  })
-
-  console.log('[server-check] Worker started.')
   return worker
 }

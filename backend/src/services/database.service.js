@@ -1,186 +1,28 @@
 import { runCommand } from './ssh.service.js'
+import { DB_CONFIGS } from '../constants/index.js'
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Database type configurations
-// ─────────────────────────────────────────────────────────────────────────────
+export { DB_CONFIGS }
 
-export const DB_CONFIGS = {
-  MONGODB: {
-    image: 'mongo:7',
-    internalPort: 27017,
-    dataPath: '/data/db',
-    envVars: (cfg) => [
-      `MONGO_INITDB_ROOT_USERNAME=${cfg.dbUser}`,
-      `MONGO_INITDB_ROOT_PASSWORD=${cfg.dbPassword}`,
-      ...(cfg.dbName ? [`MONGO_INITDB_DATABASE=${cfg.dbName}`] : []),
-    ],
-    // Health check runs inside container — env vars are available
-    healthCheck: () =>
-      `mongosh -u "$$MONGO_INITDB_ROOT_USERNAME" -p "$$MONGO_INITDB_ROOT_PASSWORD" ` +
-      `--authenticationDatabase admin --eval "db.adminCommand('ping')" --quiet`,
-    connectionString: (cfg) =>
-      `mongodb://${cfg.dbUser}:${encodeURIComponent(cfg.dbPassword)}@${cfg.ip}:${cfg.publicPort}/${cfg.dbName ?? ''}?authSource=admin`,
-    internalConnectionString: (cfg) =>
-      `mongodb://${cfg.dbUser}:${encodeURIComponent(cfg.dbPassword)}@localhost:${cfg.internalPort}/${cfg.dbName ?? ''}?authSource=admin`,
-  },
-
-  POSTGRESQL: {
-    image: 'postgres:16-alpine',
-    internalPort: 5432,
-    dataPath: '/var/lib/postgresql/data',
-    envVars: (cfg) => [
-      `POSTGRES_USER=${cfg.dbUser}`,
-      `POSTGRES_PASSWORD=${cfg.dbPassword}`,
-      `POSTGRES_DB=${cfg.dbName ?? cfg.dbUser}`,
-    ],
-    healthCheck: () => `pg_isready -U $$POSTGRES_USER`,
-    connectionString: (cfg) =>
-      `postgresql://${cfg.dbUser}:${encodeURIComponent(cfg.dbPassword)}@${cfg.ip}:${cfg.publicPort}/${cfg.dbName ?? cfg.dbUser}`,
-    internalConnectionString: (cfg) =>
-      `postgresql://${cfg.dbUser}:${encodeURIComponent(cfg.dbPassword)}@localhost:${cfg.internalPort}/${cfg.dbName ?? cfg.dbUser}`,
-  },
-
-  MYSQL: {
-    image: 'mysql:8.0',
-    internalPort: 3306,
-    dataPath: '/var/lib/mysql',
-    envVars: (cfg) => [
-      `MYSQL_ROOT_PASSWORD=${cfg.dbPassword}`,
-      `MYSQL_DATABASE=${cfg.dbName ?? 'app'}`,
-      `MYSQL_USER=${cfg.dbUser}`,
-      `MYSQL_PASSWORD=${cfg.dbPassword}`,
-    ],
-    healthCheck: () => `mysqladmin ping -h localhost -u root -p"$$MYSQL_ROOT_PASSWORD"`,
-    connectionString: (cfg) =>
-      `mysql://${cfg.dbUser}:${encodeURIComponent(cfg.dbPassword)}@${cfg.ip}:${cfg.publicPort}/${cfg.dbName ?? 'app'}`,
-    internalConnectionString: (cfg) =>
-      `mysql://${cfg.dbUser}:${encodeURIComponent(cfg.dbPassword)}@localhost:${cfg.internalPort}/${cfg.dbName ?? 'app'}`,
-  },
-
-  MARIADB: {
-    image: 'mariadb:11',
-    internalPort: 3306,
-    dataPath: '/var/lib/mysql',
-    envVars: (cfg) => [
-      `MARIADB_ROOT_PASSWORD=${cfg.dbPassword}`,
-      `MARIADB_DATABASE=${cfg.dbName ?? 'app'}`,
-      `MARIADB_USER=${cfg.dbUser}`,
-      `MARIADB_PASSWORD=${cfg.dbPassword}`,
-    ],
-    healthCheck: () => `healthcheck.sh --connect`,
-    connectionString: (cfg) =>
-      `mysql://${cfg.dbUser}:${encodeURIComponent(cfg.dbPassword)}@${cfg.ip}:${cfg.publicPort}/${cfg.dbName ?? 'app'}`,
-    internalConnectionString: (cfg) =>
-      `mysql://${cfg.dbUser}:${encodeURIComponent(cfg.dbPassword)}@localhost:${cfg.internalPort}/${cfg.dbName ?? 'app'}`,
-  },
-
-  REDIS: {
-    image: 'redis:7-alpine',
-    internalPort: 6379,
-    dataPath: '/data',
-    envVars: () => [],
-    // Redis auth is set via the command, not env vars — pass as argv array to avoid shell interpretation
-    composeCommand: (cfg) => ['redis-server', '--requirepass', cfg.dbPassword],
-    // Health check: single-quote the password so shell doesn't expand special chars
-    healthCheck: (cfg) => `redis-cli -a ${shSingleQuote(cfg.dbPassword)} ping`,
-    connectionString: (cfg) =>
-      `redis://:${encodeURIComponent(cfg.dbPassword)}@${cfg.ip}:${cfg.publicPort}/0`,
-    internalConnectionString: (cfg) =>
-      `redis://:${encodeURIComponent(cfg.dbPassword)}@localhost:${cfg.internalPort}/0`,
-  },
-
-  KEYDB: {
-    image: 'eqalpha/keydb:latest',
-    internalPort: 6379,
-    dataPath: '/data',
-    envVars: () => [],
-    composeCommand: (cfg) => ['keydb-server', '--requirepass', cfg.dbPassword],
-    healthCheck: (cfg) => `keydb-cli -a ${shSingleQuote(cfg.dbPassword)} ping`,
-    connectionString: (cfg) =>
-      `redis://:${encodeURIComponent(cfg.dbPassword)}@${cfg.ip}:${cfg.publicPort}/0`,
-    internalConnectionString: (cfg) =>
-      `redis://:${encodeURIComponent(cfg.dbPassword)}@localhost:${cfg.internalPort}/0`,
-  },
-
-  DRAGONFLY: {
-    image: 'docker.dragonflydb.io/dragonflydb/dragonfly:latest',
-    internalPort: 6379,
-    dataPath: '/data',
-    envVars: () => [],
-    composeCommand: (cfg) => ['dragonfly', '--requirepass', cfg.dbPassword],
-    healthCheck: (cfg) => `redis-cli -a ${shSingleQuote(cfg.dbPassword)} ping`,
-    connectionString: (cfg) =>
-      `redis://:${encodeURIComponent(cfg.dbPassword)}@${cfg.ip}:${cfg.publicPort}/0`,
-    internalConnectionString: (cfg) =>
-      `redis://:${encodeURIComponent(cfg.dbPassword)}@localhost:${cfg.internalPort}/0`,
-  },
-
-  CLICKHOUSE: {
-    image: 'clickhouse/clickhouse-server:latest',
-    internalPort: 8123,
-    dataPath: '/var/lib/clickhouse',
-    envVars: (cfg) => [
-      `CLICKHOUSE_USER=${cfg.dbUser}`,
-      `CLICKHOUSE_PASSWORD=${cfg.dbPassword}`,
-      `CLICKHOUSE_DB=${cfg.dbName ?? 'default'}`,
-    ],
-    healthCheck: () => `wget --spider -q http://localhost:8123/ping`,
-    connectionString: (cfg) =>
-      `clickhouse://${cfg.dbUser}:${encodeURIComponent(cfg.dbPassword)}@${cfg.ip}:${cfg.publicPort}/${cfg.dbName ?? 'default'}`,
-    internalConnectionString: (cfg) =>
-      `clickhouse://${cfg.dbUser}:${encodeURIComponent(cfg.dbPassword)}@localhost:${cfg.internalPort}/${cfg.dbName ?? 'default'}`,
-  },
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Shell / YAML escaping helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Wraps a value in YAML single-quoted scalar — safe for ANY character.
-// Single quotes in the value are escaped as '' (YAML convention).
 function yamlStr(val) {
   return `'${String(val ?? '').replace(/'/g, "''")}'`
 }
 
-// Wraps a value in shell single quotes — safe for any char except single-quote,
-// which is escaped by ending/reopening the quoted string.
 function shSingleQuote(val) {
   return `'${String(val ?? '').replace(/'/g, "'\\''")}'`
 }
 
-// Escapes a string for embedding in a YAML double-quoted scalar.
 function yamlDqEscape(str) {
   return str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Compose file path helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
 function composeDir(containerName) {
-  return `/opt/dbshift/databases/${containerName}`
+  return `/opt/gitsync/databases/${containerName}`
 }
 
 function composePath(containerName) {
   return `${composeDir(containerName)}/docker-compose.yml`
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Docker Compose YAML generation
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Generates a Docker Compose YAML string for a database + socat proxy stack.
- *
- * Design decisions (matching Coolify):
- *  - Named volume for data persistence (survives container recreation)
- *  - Database container has NO host port binding — only on the internal network
- *  - socat proxy binds the public port and forwards TCP to the db service
- *  - Env vars written as YAML single-quoted scalars (handles all special chars)
- *  - composeCommand written as YAML sequence (bypasses shell interpretation)
- *  - Healthcheck uses Docker's native HEALTHCHECK — compose waits for healthy
- *    before starting the proxy, so no manual polling needed
- */
 function generateComposeYaml(containerName, typeConfig, dbConfig, volumeName) {
   const { internalPort, dataPath } = typeConfig
   const envVars = typeConfig.envVars(dbConfig)
@@ -293,20 +135,6 @@ export async function findFreePort(serverConfig, startPort = 20000, endPort = 30
   throw new Error(`No free port found between ${startPort} and ${endPort}`)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Database provisioning
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Provisions a new database using Docker Compose (Coolify-style):
- *  1. Pulls images
- *  2. Writes a compose file to /opt/dbshift/databases/<name>/ on the server
- *  3. Runs `docker compose up -d`
- *  4. Waits for the db service to reach health=healthy (native Docker healthcheck)
- *  5. Returns containerName and volumeName
- *
- * On any failure after the compose stack has started, tears it down cleanly.
- */
 export async function provisionDatabase(serverConfig, dbConfig, opts = {}) {
   const log = (msg) => opts.onLog?.(`[provision] ${msg}`)
   const typeConfig = DB_CONFIGS[dbConfig.type]
@@ -315,8 +143,8 @@ export async function provisionDatabase(serverConfig, dbConfig, opts = {}) {
 
   const ts            = Date.now()
   const sanitized     = dbConfig.name.toLowerCase().replace(/[^a-z0-9]/g, '_')
-  const containerName = `dbshift_${sanitized}_${ts}`
-  const volumeName    = `dbshift_${sanitized}_${ts}_data`
+  const containerName = `gitsync_${sanitized}_${ts}`
+  const volumeName    = `gitsync_${sanitized}_${ts}_data`
   const cDir          = composeDir(containerName)
   const cPath         = composePath(containerName)
 
@@ -407,10 +235,6 @@ export async function provisionDatabase(serverConfig, dbConfig, opts = {}) {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Container lifecycle (via Docker Compose)
-// ─────────────────────────────────────────────────────────────────────────────
-
 export async function stopContainer(serverConfig, containerName) {
   const { code } = await runCommand(
     serverConfig,
@@ -438,10 +262,6 @@ export async function restartContainer(serverConfig, containerName) {
   return { success: code === 0 }
 }
 
-/**
- * Removes the entire compose stack including the named data volume.
- * Only call this on explicit database delete — data is irrecoverable.
- */
 export async function removeContainer(serverConfig, containerName) {
   const cPath = composePath(containerName)
   const cDir  = composeDir(containerName)
@@ -455,14 +275,6 @@ export async function removeContainer(serverConfig, containerName) {
   return { success: true }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Observability
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Returns the live container status: 'running' | 'stopped' | 'not_found'
- * Checks the db service container directly (not the proxy).
- */
 export async function getContainerStatus(serverConfig, containerName) {
   const { stdout, code } = await runCommand(
     serverConfig,
@@ -506,10 +318,6 @@ export async function getContainerLogs(serverConfig, containerName, tail = 100) 
   )
   return stdout
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Connection string builder
-// ─────────────────────────────────────────────────────────────────────────────
 
 export function buildConnectionStrings(type, cfg) {
   const typeConfig = DB_CONFIGS[type]

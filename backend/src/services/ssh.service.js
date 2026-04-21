@@ -1,5 +1,5 @@
 import { Client } from 'ssh2'
-import { config } from '../config/index.js'
+import { config } from '../constants/index.js'
 
 export class SSHError extends Error {
   constructor(message, code = 'SSH_ERROR') {
@@ -42,24 +42,6 @@ function buildConnectConfig(serverConfig) {
   return { ...base, privateKey: serverConfig.privateKey }
 }
 
-/**
- * Executes a single command on a remote server over SSH.
- *
- * @param {object} serverConfig
- * @param {string} serverConfig.ip
- * @param {number} serverConfig.port
- * @param {string} serverConfig.username
- * @param {string} serverConfig.authType   — 'PASSWORD' | 'KEY'
- * @param {string} [serverConfig.password] — required if authType is PASSWORD
- * @param {string} [serverConfig.privateKey] — required if authType is KEY
- * @param {string} command
- * @param {object} [opts]
- * @param {number} [opts.timeout]
- * @param {function} [opts.onStdout]
- * @param {function} [opts.onStderr]
- *
- * @returns {Promise<{ stdout: string, stderr: string, code: number }>}
- */
 export function runCommand(serverConfig, command, opts = {}) {
   return new Promise((resolve, reject) => {
     const conn = new Client()
@@ -192,11 +174,11 @@ export async function testConnection(serverConfig) {
   try {
     const { stdout, code } = await runCommand(
       serverConfig,
-      'echo __dbshift_ok__',
+      'echo __gitsync_ok__',
       { timeout: config.ssh.connectTimeout }
     )
 
-    const ok = code === 0 && stdout.includes('__dbshift_ok__')
+    const ok = code === 0 && stdout.includes('__gitsync_ok__')
     return { ok, latencyMs: Date.now() - start }
   } catch (err) {
     return {

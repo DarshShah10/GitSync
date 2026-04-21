@@ -1,23 +1,35 @@
 import { useState } from 'react'
-import { Plus, RefreshCw, Trash2, RotateCcw, AlertCircle, Wifi, TerminalSquare, ArrowRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useServers, useDeleteServer, useReverifyServer, useServerStatus, useTestConnection } from '../hooks/useServers.js'
 import AddServerModal from '../components/AddServerModal.jsx'
 import StatusBadge from '../components/StatusBadge.jsx'
-import styles from './ServersPage.module.css'
 import toast from 'react-hot-toast'
+
+// ── Shared button styles ──────────────────────────────────────────────
+const ghostBtn = {
+  display: 'flex', alignItems: 'center', gap: 6,
+  padding: '7px 14px', borderRadius: 8,
+  background: '#1f1f22', border: '1px solid rgba(255,255,255,0.06)',
+  color: '#adaaad', fontSize: 12, fontWeight: 600,
+  cursor: 'pointer', transition: 'all 0.15s',
+}
+
+const dangerBtn = {
+  ...ghostBtn, color: '#ff6e84',
+  borderColor: 'rgba(255,110,132,0.25)',
+  background: 'rgba(255,110,132,0.08)',
+}
 
 function ServerCard({ server, onDelete, onReverify }) {
   const navigate = useNavigate()
   const isLive = server.status === 'PENDING' || server.status === 'VERIFYING'
   const { data: live } = useServerStatus(server.id, isLive)
   const { mutate: testConn, isPending: testing } = useTestConnection()
+  const [confirmDel, setConfirmDel] = useState(false)
 
   const status       = live?.status       ?? server.status
   const errorMessage = live?.errorMessage ?? server.errorMessage
   const dockerVer    = live?.dockerVersion ?? server.dockerVersion
-
-  const [confirmDel, setConfirmDel] = useState(false)
 
   function handleTest() {
     testConn(server.id, {
@@ -29,66 +41,77 @@ function ServerCard({ server, onDelete, onReverify }) {
   }
 
   return (
-    <div className={styles.card}>
-      <div className={styles.cardTop}>
-        <div className={styles.infoWrap}>
-          <div className={styles.serverIconWrap}>
-            <TerminalSquare size={24} />
+    <div style={{
+      background: '#131315', border: '1px solid rgba(255,255,255,0.06)',
+      borderRadius: 16, padding: 24,
+      display: 'flex', flexDirection: 'column',
+      transition: 'transform 0.15s, border-color 0.15s',
+      position: 'relative', overflow: 'hidden',
+    }}
+      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)' }}
+      onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)' }}
+    >
+      {/* Top */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+          <div style={{
+            width: 52, height: 52, borderRadius: 14,
+            background: '#1f1f22', border: '1px solid rgba(255,255,255,0.06)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#34b5fa',
+          }}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/>
+              <circle cx="6" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="6" cy="18" r="1" fill="currentColor" stroke="none"/>
+            </svg>
           </div>
-
-          <div className={styles.info}>
-            <div className={styles.name}>{server.name}</div>
-            <div className={styles.meta}>
-              <span className={styles.ip}>{server.ip}</span>
-              <span className={styles.sep}>:</span>
-              <span className={styles.ip}>{server.port}</span>
-              <span className={styles.metaDot} />
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: '#f9f5f8', marginBottom: 4 }}>{server.name}</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, fontSize: 12, color: '#71717a' }}>
+              <span>{server.ip}:{server.port}</span>
+              <span style={{ color: '#3f3f46' }}>·</span>
               <span>{server.username}</span>
-              <span className={styles.metaDot} />
-              <span>{server.authType === 'PASSWORD' ? '🔒 pass' : '🔑 key'}</span>
-              {dockerVer && <><span className={styles.metaDot} /><span>Docker {dockerVer}</span></>}
+              <span style={{ color: '#3f3f46' }}>·</span>
+              <span>{server.authType === 'PASSWORD' ? '🔒 password' : '🔑 key'}</span>
+              {dockerVer && <><span style={{ color: '#3f3f46' }}>·</span><span>Docker {dockerVer}</span></>}
             </div>
             {errorMessage && (
-              <div className={styles.errorMsg}>
-                <AlertCircle size={14} /> {errorMessage}
+              <div style={{
+                marginTop: 8, display: 'flex', alignItems: 'center', gap: 6,
+                color: '#ff6e84', fontSize: 12,
+                background: 'rgba(255,110,132,0.08)', padding: '6px 10px', borderRadius: 6,
+              }}>
+                ⚠ {errorMessage}
               </div>
             )}
           </div>
         </div>
-
-        <div className={styles.cardRight}>
-          <StatusBadge status={status} />
-        </div>
+        <StatusBadge status={status} />
       </div>
 
-      <div className={styles.cardActions}>
-        <button className={styles.actionBtn} onClick={() => navigate(`/servers/${server.id}`)}>
-          Console <ArrowRight size={14} />
+      {/* Actions */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 20, borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+        <button style={ghostBtn} onClick={() => navigate(`/servers/${server.id}`)}>
+          Console →
         </button>
-
-        <button className={styles.actionBtn} onClick={handleTest} disabled={testing}>
-          <Wifi size={14} />
-          {testing ? 'Testing…' : 'Ping'}
+        <button style={{ ...ghostBtn, opacity: testing ? 0.5 : 1 }} onClick={handleTest} disabled={testing}>
+          {testing ? 'Testing…' : '⚡ Ping'}
         </button>
-
         {(status === 'ERROR' || status === 'UNREACHABLE') && (
-          <button className={styles.actionBtn} onClick={() => onReverify(server.id)}>
-            <RotateCcw size={14} /> Reverify
+          <button style={ghostBtn} onClick={() => onReverify(server.id)}>
+            ↺ Reverify
           </button>
         )}
-
-        <div className={styles.spacer} />
-
+        <div style={{ flex: 1 }} />
         {!confirmDel ? (
-          <button className={`${styles.actionBtn} ${styles.danger}`} onClick={() => setConfirmDel(true)}>
-            <Trash2 size={14} /> Delete
+          <button style={dangerBtn} onClick={() => setConfirmDel(true)}>
+            🗑 Delete
           </button>
         ) : (
-          <div className={styles.confirmRow}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#71717a' }}>
             <span>Are you sure?</span>
-            <button className={`${styles.actionBtn} ${styles.danger}`}
-              onClick={() => { onDelete(server.id); setConfirmDel(false) }}>Yes</button>
-            <button className={styles.actionBtn} onClick={() => setConfirmDel(false)}>No</button>
+            <button style={dangerBtn} onClick={() => { onDelete(server.id); setConfirmDel(false) }}>Yes</button>
+            <button style={ghostBtn} onClick={() => setConfirmDel(false)}>No</button>
           </div>
         )}
       </div>
@@ -103,63 +126,101 @@ export default function ServersPage() {
   const { mutate: reverify } = useReverifyServer()
 
   return (
-    <div className={styles.page}>
-      <div className={styles.header}>
+    <div style={{ animation: 'fadeIn 0.3s ease-out' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 40 }}>
         <div>
-          <h2 className={styles.title}>Servers</h2>
-          <p className={styles.subtitle}>
-            {servers.length === 0
-              ? 'No servers connected yet.'
-              : `Manage your connected virtual machines and bare metal servers.`}
+          <h2 style={{ fontSize: 40, fontWeight: 800, letterSpacing: '-0.04em', color: '#f9f5f8', margin: 0 }}>Servers</h2>
+          <p style={{ color: '#71717a', fontSize: 14, margin: '8px 0 0' }}>
+            {servers.length === 0 ? 'No servers connected yet.' : 'Manage your connected virtual machines and bare metal servers.'}
           </p>
         </div>
-        <div className={styles.headerRight}>
-          <button className={styles.iconBtn} onClick={() => refetch()} title="Refresh">
-            <RefreshCw size={18} />
-          </button>
-          <button className={styles.addBtn} onClick={() => setModal(true)}>
-            <Plus size={18} /> New Server
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            onClick={() => refetch()}
+            style={{
+              width: 40, height: 40, borderRadius: 10,
+              background: '#131315', border: '1px solid rgba(255,255,255,0.06)',
+              color: '#71717a', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', fontSize: 16, transition: 'all 0.15s',
+            }}
+            title="Refresh"
+          >↻</button>
+          <button
+            onClick={() => setModal(true)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '0 20px', height: 40, borderRadius: 10,
+              background: 'linear-gradient(135deg, #ba9eff, #8455ef)',
+              border: 'none', color: '#000', fontWeight: 700, fontSize: 13,
+              cursor: 'pointer', boxShadow: '0 0 16px rgba(186,158,255,0.2)',
+            }}
+          >
+            + New Server
           </button>
         </div>
       </div>
 
-      {isLoading && (
-        <div className={styles.state}>
-          <div className={styles.spinner} />
-          <p style={{ color: 'var(--text-secondary)' }}>Loading servers…</p>
-        </div>
-      )}
-
+      {/* States */}
+      {isLoading && <EmptyShell><Spinner />Loading servers…</EmptyShell>}
       {isError && (
-        <div className={styles.state}>
-          <AlertCircle size={32} style={{ color: 'var(--danger)', marginBottom: '16px' }} />
-          <p style={{ color: 'var(--text-secondary)', marginBottom: '16px' }}>Failed to load servers</p>
-          <button className={styles.addBtn} onClick={() => refetch()}>Retry</button>
-        </div>
+        <EmptyShell>
+          <div style={{ color: '#ff6e84', fontSize: 32, marginBottom: 16 }}>⚠</div>
+          <p style={{ color: '#71717a', marginBottom: 16 }}>Failed to load servers</p>
+          <button onClick={() => refetch()} style={primaryBtnStyle}>Retry</button>
+        </EmptyShell>
       )}
-
       {!isLoading && !isError && servers.length === 0 && (
-        <div className={styles.empty}>
-          <div className={styles.emptyIcon}><TerminalSquare size={32} /></div>
-          <div className={styles.emptyTitle}>No servers yet</div>
-          <div className={styles.emptySub}>Connect a VPS and deploy your instances.</div>
-          <button className={styles.addBtn} onClick={() => setModal(true)}>
-            <Plus size={18} /> Connect First Server
-          </button>
-        </div>
+        <EmptyShell>
+          <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#1f1f22', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 24, fontSize: 28 }}>🖥</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: '#f9f5f8', marginBottom: 8 }}>No servers yet</div>
+          <div style={{ color: '#71717a', marginBottom: 24 }}>Connect a VPS and deploy your instances.</div>
+          <button onClick={() => setModal(true)} style={primaryBtnStyle}>+ Connect First Server</button>
+        </EmptyShell>
       )}
 
+      {/* Grid */}
       {!isLoading && servers.length > 0 && (
-        <div className={styles.list}>
-          {servers.map(s => (
-            <ServerCard key={s.id} server={s} onDelete={del} onReverify={reverify} />
-          ))}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 20 }}>
+          {servers.map(s => <ServerCard key={s.id} server={s} onDelete={del} onReverify={reverify} />)}
         </div>
       )}
 
-      {modal && (
-        <AddServerModal onClose={() => setModal(false)} onCreated={() => refetch()} />
-      )}
+      {modal && <AddServerModal onClose={() => setModal(false)} onCreated={() => refetch()} />}
     </div>
   )
+}
+
+// ── Sub-components ────────────────────────────────────────────────────
+
+function EmptyShell({ children }) {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      minHeight: 400, background: '#131315', borderRadius: 16,
+      border: '1px dashed rgba(255,255,255,0.07)',
+    }}>
+      {children}
+    </div>
+  )
+}
+
+function Spinner() {
+  return (
+    <div style={{
+      width: 32, height: 32, borderRadius: '50%',
+      border: '3px solid rgba(255,255,255,0.06)',
+      borderTopColor: '#ba9eff',
+      animation: 'spin 0.8s linear infinite',
+      marginBottom: 16,
+    }} />
+  )
+}
+
+const primaryBtnStyle = {
+  display: 'flex', alignItems: 'center', gap: 8,
+  padding: '8px 20px', borderRadius: 10,
+  background: 'linear-gradient(135deg, #ba9eff, #8455ef)',
+  border: 'none', color: '#000', fontWeight: 700, fontSize: 13,
+  cursor: 'pointer',
 }

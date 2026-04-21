@@ -12,8 +12,7 @@ import { getServers } from '../../services/servers.js'
 import AddDatabaseModal from '../../components/AddDatabaseModal.jsx'
 import StatusBadge from '../../components/StatusBadge.jsx'
 import toast from 'react-hot-toast'
-import { Server, Trash2, Play, Square, RotateCcw, Copy, Check, Database as DbIcon, Plus } from 'lucide-react'
-import styles from '../GlobalDatabasesPage.module.css'
+import { Trash2, Play, Square, RotateCcw, Copy, Check, Database as DbIcon, Plus } from 'lucide-react'
 
 const DB_ICONS = {
   MONGODB:    '🍃',
@@ -32,8 +31,6 @@ export default function ServerDatabases() {
   const [copiedId, setCopiedId] = useState(null)
 
   const { data: dbData, isLoading } = useDatabases(id)
-  
-  // Need server data to pass to AddDatabaseModal so it selects this server by default
   const { data: serverData } = useQuery({ queryKey: ['servers'], queryFn: getServers })
 
   const startDb  = useStartDatabase()
@@ -71,106 +68,149 @@ export default function ServerDatabases() {
   }
 
   return (
-    <div className={styles.page} style={{ paddingTop: 0 }}>
-      <div className={styles.header} style={{ marginBottom: 24 }}>
+    <div>
+      {/* Header */}
+      <div className="flex justify-between items-end mb-6">
         <div>
-          <h2 className={styles.title} style={{ fontSize: '1.5rem', marginBottom: 4 }}>Databases</h2>
-          <p className={styles.subtitle}>
+          <h2 className="text-2xl font-extrabold tracking-[-0.04em] text-[var(--text-primary)] mb-1">
+            Databases
+          </h2>
+          <p className="text-[var(--text-secondary)] text-sm">
             Showing {databases.length} database{databases.length !== 1 ? 's' : ''} running on this server.
           </p>
         </div>
-        <div className={styles.headerRight}>
-          <button className={styles.addBtn} onClick={() => setShowAdd(true)}>
+        <div className="flex gap-3 items-center">
+          <button
+            className="flex items-center gap-2 px-5 h-10 rounded-[var(--radius-md)] bg-gradient-to-br from-[var(--primary)] to-[var(--primary-dim)] text-white font-bold text-sm transition-all hover:opacity-90 hover:shadow-[0_0_15px_rgba(132,85,239,0.5)]"
+            onClick={() => setShowAdd(true)}
+          >
             <Plus size={18} /> Deploy Database
           </button>
         </div>
       </div>
 
+      {/* Content */}
       {isLoading ? (
-        <div className={styles.state}>
-          <div className={styles.spinner} />
-          <p style={{ color: 'var(--text-secondary)' }}>Loading databases…</p>
+        <div className="flex flex-col items-center justify-center h-[400px] bg-[var(--bg-elevated)] rounded-[var(--radius-xl)] border border-dashed border-[var(--border-ghost)]">
+          <div className="w-8 h-8 border-[3px] border-[var(--border-ghost)] border-t-[var(--primary)] rounded-full animate-spin mb-4" />
+          <p className="text-[var(--text-secondary)]">Loading databases…</p>
         </div>
       ) : databases.length === 0 ? (
-        <div className={styles.state}>
-          <div className={styles.emptyIcon}><DbIcon size={32} /></div>
-          <div className={styles.emptyTitle}>No databases deployed</div>
-          <div className={styles.emptySub}>Deploy your first database to this server.</div>
-          <button className={styles.addBtn} onClick={() => setShowAdd(true)}>
+        <div className="flex flex-col items-center justify-center h-[400px] bg-[var(--bg-elevated)] rounded-[var(--radius-xl)] border border-dashed border-[var(--border-ghost)]">
+          <div className="w-16 h-16 rounded-full bg-[var(--bg-highest)] flex items-center justify-center text-[var(--text-muted)] mb-6">
+            <DbIcon size={32} />
+          </div>
+          <div className="text-2xl font-bold mb-2">No databases deployed</div>
+          <div className="text-[var(--text-secondary)] mb-6">Deploy your first database to this server.</div>
+          <button
+            className="flex items-center gap-2 px-5 h-10 rounded-[var(--radius-md)] bg-gradient-to-br from-[var(--primary)] to-[var(--primary-dim)] text-white font-bold text-sm transition-all hover:opacity-90 hover:shadow-[0_0_15px_rgba(132,85,239,0.5)]"
+            onClick={() => setShowAdd(true)}
+          >
             <Plus size={18} /> Provision Database
           </button>
         </div>
       ) : (
-        <div className={styles.grid}>
+        <div className="grid grid-cols-2 gap-6">
           {databases.map(db => (
-            <div key={db.id} className={styles.card}>
-              <div className={styles.cardHeader}>
-                <div className={styles.cardTitle}>
-                  <div className={styles.dbIcon}>
+            <div
+              key={db.id}
+              className="bg-[var(--bg-elevated)] border border-[var(--border-ghost)] rounded-[var(--radius-xl)] p-6 flex flex-col transition-all hover:-translate-y-1 hover:border-[var(--border-light)] hover:shadow-[0_10px_40px_rgba(0,0,0,0.2)]"
+            >
+              {/* Card Header */}
+              <div className="flex justify-between items-start mb-6">
+                <div className="flex gap-4 items-center">
+                  <div className="w-12 h-12 rounded-[var(--radius-lg)] bg-[var(--bg-highest)] flex items-center justify-center border border-[var(--border-ghost)] text-[1.5rem]">
                     {DB_ICONS[db.type] ?? <DbIcon size={24} />}
                   </div>
                   <div>
-                    <Link to={`/databases/${db.id}`} className={styles.dbName}>
+                    <Link
+                      to={`/databases/${db.id}`}
+                      className="text-xl font-bold text-[var(--text-primary)] mb-0.5 block no-underline hover:underline"
+                    >
                       {db.name}
                     </Link>
-                    <p className={styles.dbType}>{db.type}</p>
+                    <p className="text-[0.75rem] text-[var(--text-secondary)] font-semibold tracking-[0.05em] m-0">
+                      {db.type}
+                    </p>
                   </div>
                 </div>
                 <StatusBadge status={db.status} />
               </div>
 
+              {/* Connection String */}
               {db.connectionString && (
-                <div 
-                  className={styles.connectionString} 
+                <div
+                  className="mb-6 flex items-center justify-between bg-[var(--bg-base)] px-4 py-3 rounded-[var(--radius-md)] border border-[var(--border-light)] cursor-pointer transition-all hover:border-[var(--primary)]"
                   onClick={() => copyConnectionString(db)}
                   title="Click to copy connection string"
                 >
-                  <code className={styles.connText}>
+                  <code className="font-mono text-[0.75rem] text-[var(--secondary)] whitespace-nowrap overflow-hidden text-ellipsis max-w-[80%]">
                     {db.connectionString.replace(/:[^@]+@/, ':****@')}
                   </code>
-                  {copiedId === db.id ? <Check className={styles.connIcon} size={16} color="var(--success)"/> : <Copy className={styles.connIcon} size={16}/>}
+                  {copiedId === db.id
+                    ? <Check className="text-[var(--text-muted)]" size={16} color="var(--success)" />
+                    : <Copy className="text-[var(--text-muted)]" size={16} />
+                  }
                 </div>
               )}
 
-              <div className={styles.metaGrid}>
-                <div className={styles.metaRow}>
-                  <span className={styles.metaLabel}>Backup Policy</span>
-                  <span className={styles.metaValue}>{db._count?.backupConfigs > 0 ? `${db._count.backupConfigs} active` : 'None'}</span>
+              {/* Meta Grid */}
+              <div className="grid grid-cols-2 gap-3 mb-6 bg-[var(--bg-base)] p-4 rounded-[var(--radius-md)] border border-[var(--border-ghost)]">
+                <div className="flex flex-col">
+                  <span className="text-[0.65rem] uppercase text-[var(--text-secondary)] font-bold tracking-[0.1em] mb-1">
+                    Backup Policy
+                  </span>
+                  <span className="text-sm text-[var(--text-primary)] font-semibold">
+                    {db._count?.backupConfigs > 0 ? `${db._count.backupConfigs} active` : 'None'}
+                  </span>
                 </div>
-                <div className={styles.metaRow}>
-                  <span className={styles.metaLabel}>Public Port</span>
-                  <span className={styles.metaValue}>{db.publicPort ?? '—'}</span>
+                <div className="flex flex-col">
+                  <span className="text-[0.65rem] uppercase text-[var(--text-secondary)] font-bold tracking-[0.1em] mb-1">
+                    Public Port
+                  </span>
+                  <span className="text-sm text-[var(--text-primary)] font-semibold">
+                    {db.publicPort ?? '—'}
+                  </span>
                 </div>
               </div>
 
+              {/* Creating state */}
               {db.status === 'CREATING' && (
-                <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '16px' }}>
-                  <span className={styles.spinner} style={{width: 16, height: 16, display: 'inline-block', verticalAlign: 'middle'}}/> Provisioning...
+                <div className="text-[var(--text-secondary)] text-sm mb-4">
+                  <span className="inline-block w-4 h-4 border-2 border-[var(--border-ghost)] border-t-[var(--primary)] rounded-full animate-spin align-middle" /> Provisioning...
                 </div>
               )}
 
-              <div className={styles.actions}>
+              {/* Actions */}
+              <div className="flex gap-3 mt-auto border-t border-[var(--border-light)] pt-5">
                 {db.status === 'STOPPED' && (
-                  <button onClick={() => handleAction('start', db)} className={styles.actionBtn}>
+                  <button
+                    onClick={() => handleAction('start', db)}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-[var(--bg-highest)] border border-[var(--border-ghost)] rounded-[var(--radius-md)] text-[var(--text-secondary)] text-[0.75rem] font-semibold transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                  >
                     <Play size={14} /> Start
                   </button>
                 )}
                 {db.status === 'RUNNING' && (
                   <>
-                    <button onClick={() => handleAction('stop', db)} className={styles.actionBtn}>
+                    <button
+                      onClick={() => handleAction('stop', db)}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-[var(--bg-highest)] border border-[var(--border-ghost)] rounded-[var(--radius-md)] text-[var(--text-secondary)] text-[0.75rem] font-semibold transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                    >
                       <Square size={14} /> Stop
                     </button>
-                    <button onClick={() => handleAction('restart', db)} className={styles.actionBtn}>
+                    <button
+                      onClick={() => handleAction('restart', db)}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-[var(--bg-highest)] border border-[var(--border-ghost)] rounded-[var(--radius-md)] text-[var(--text-secondary)] text-[0.75rem] font-semibold transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                    >
                       <RotateCcw size={14} /> Restart
                     </button>
                   </>
                 )}
-                
-                <div style={{ flex: 1 }} />
-                
+                <div className="flex-1" />
                 <button
                   onClick={() => handleAction('delete', db)}
-                  className={`${styles.actionBtn} ${styles.danger}`}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-[var(--bg-highest)] border border-[var(--border-ghost)] rounded-[var(--radius-md)] text-[var(--text-secondary)] text-[0.75rem] font-semibold transition-all hover:text-[var(--danger)] hover:border-[var(--danger)] hover:bg-[rgba(255,110,132,0.1)]"
                 >
                   <Trash2 size={14} color="var(--danger)" />
                 </button>

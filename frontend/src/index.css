@@ -1,117 +1,113 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Mono:wght@400;700&display=swap');
+@import "tailwindcss";
 
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
+/* ── Sovereign Design System — CSS Variable Definitions ────────────── */
 :root {
-  /* Sovereign Colors */
-  --bg-base:        #0e0e10;
-  --bg-surface:     #131315;
-  --bg-elevated:    #19191c;
-  --bg-hover:       #1f1f22;
-  --bg-highest:     #262528;
-  
-  --border:         rgba(255, 255, 255, 0.05);
-  --border-light:   rgba(255, 255, 255, 0.1);
-  --border-ghost:   rgba(72, 71, 74, 0.15);
+  /* Surfaces — tonal layering (dark → light) */
+  --bg-base:         #000000;   /* surface-container-lowest */
+  --bg-surface:      #0e0e10;   /* surface / background     */
+  --bg-elevated:     #131315;   /* surface-container-low    */
+  --bg-surface-2:    #19191c;   /* surface-container        */
+  --bg-highest:      #1f1f22;   /* surface-container-high   */
+  --bg-hover:        #262528;   /* surface-container-highest*/
+  --bg-bright:       #2c2c2f;   /* surface-bright           */
 
-  --text-primary:   #f9f5f8;
-  --text-secondary: #adaaad;
-  --text-muted:     #565457;
+  /* Aliases used in older code */
+  --bg:              #131315;
+  --surface:         #19191c;
 
-  /* Accents */
-  --primary:        #ba9eff;
-  --primary-dim:    #8455ef;
-  --secondary:      #34b5fa;
-  --tertiary:       #ff97b2;
-  
-  /* Status Base Colors */
-  --success:        #34d399;
-  --warning:        #f59e0b;
-  --danger:         #ff6e84;
+  /* Borders — ghost principle: felt, not seen */
+  --border-ghost:    rgba(255,255,255,0.06);
+  --border-light:    rgba(255,255,255,0.10);
+  --border:          rgba(255,255,255,0.08);
 
-  --font-sans: 'Inter', sans-serif;
-  --font-mono: 'Space Mono', monospace;
+  /* Text */
+  --text-primary:    #f9f5f8;   /* on-surface        */
+  --text-secondary:  #adaaad;   /* on-surface-variant*/
+  --text-muted:      #767577;   /* outline           */
 
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
+  /* Brand — primary (violet) */
+  --primary:         #ba9eff;
+  --primary-dim:     #8455ef;
 
-  --transition: 200ms ease-out;
+  /* Info — secondary (blue) */
+  --secondary:       #34b5fa;
+  --secondary-dim:   #17a8ec;
+
+  /* Warning — tertiary (pink-orange) */
+  --tertiary:        #ff97b2;
+
+  /* Status */
+  --success:         #4ade80;
+  --warning:         #f59e0b;
+  --danger:          #ff6e84;
+
+  /* Legacy aliases */
+  --accent:          #ba9eff;
+
+  /* Radii */
+  --radius-sm:       4px;
+  --radius-md:       8px;
+  --radius-lg:       12px;
+  --radius-xl:       16px;
+  --radius-2xl:      20px;
 }
 
-html { 
-  font-size: 16px; 
-  -webkit-font-smoothing: antialiased; 
-}
+/* ── Base ──────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
 
 body {
-  font-family: var(--font-sans);
-  background: var(--bg-base);
+  margin: 0;
+  font-family: 'Inter', system-ui, sans-serif;
+  background-color: var(--bg-surface);
   color: var(--text-primary);
-  line-height: 1.6;
-  min-height: 100vh;
-  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Subtle grid bg */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(186,158,255,0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(186,158,255,0.02) 1px, transparent 1px);
-  background-size: 40px 40px;
-  pointer-events: none;
-  z-index: 0;
+/* ── Animations ────────────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0);    }
 }
 
-#root { position: relative; z-index: 1; }
-
-h1,h2,h3,h4,h5,h6 { 
-  line-height: 1.2; 
-  font-weight: 700; 
-  color: var(--text-primary); 
-  letter-spacing: -0.02em;
+@keyframes pulse {
+  0%   { opacity: 1;   transform: scale(1);   }
+  50%  { opacity: 0.5; transform: scale(1.5); }
+  100% { opacity: 1;   transform: scale(1);   }
 }
 
-p { color: var(--text-secondary); }
-a { color: var(--primary); text-decoration: none; transition: color var(--transition); }
-a:hover { color: var(--primary-dim); }
-code, pre { font-family: var(--font-mono); font-size: 0.875rem; }
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: var(--bg-base); }
-::-webkit-scrollbar-thumb { background: var(--bg-highest); border-radius: 10px; }
-::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+/* ── Scrollbar ─────────────────────────────────────────────────────── */
+::-webkit-scrollbar               { width: 6px; height: 6px; }
+::-webkit-scrollbar-track         { background: transparent; }
+::-webkit-scrollbar-thumb         { background: rgba(255,255,255,0.08); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover   { background: rgba(255,255,255,0.15); }
 
-::selection { background: rgba(186,158,255,0.3); color: #fff; }
+/* ── Selection ─────────────────────────────────────────────────────── */
+::selection { background: rgba(186,158,255,0.25); }
 
+/* ── Glass panel utility ───────────────────────────────────────────── */
 .glass-panel {
-  background: rgba(38, 37, 40, 0.7);
+  background: rgba(38, 37, 40, 0.75);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
 }
 
-.ghost-border { border: 1px solid var(--border-ghost); }
-
-.primary-gradient-text {
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-image: linear-gradient(to bottom right, var(--primary), var(--primary-dim));
+/* ── Native select reset ───────────────────────────────────────────── */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23767577' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px !important;
 }
 
-button {
-  cursor: pointer;
-  border: none;
-  background: none;
-  font-family: inherit;
-  font-size: inherit;
+select option {
+  background: #19191c;
+  color: #f9f5f8;
 }
+
