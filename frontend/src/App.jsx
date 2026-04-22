@@ -6,6 +6,7 @@ import Layout from './components/Layout.jsx'
 import HomePage from './pages/HomePage.jsx'
 import ServersPage from './pages/ServersPage.jsx'
 import ComingSoonPage from './pages/ComingSoonPage.jsx'
+import NewResourcePage from './pages/NewResourcePage.jsx'
 // Global Pages
 import GlobalDatabasesPage from './pages/GlobalDatabasesPage.jsx'
 import GlobalAppsPage from './pages/GlobalAppsPage.jsx'
@@ -15,6 +16,9 @@ import ServerWorkspaceLayout from './pages/server/ServerWorkspaceLayout.jsx'
 import ServerOverview from './pages/server/ServerOverview.jsx'
 import ServerApps from './pages/server/ServerApps.jsx'
 import ServerDatabases from './pages/server/ServerDatabases.jsx'
+// import { NewResourcePage } from './pages/NewResourcePage.jsx'
+import PublicRepoDeployPage from './pages/PublicRepoDeployPage.jsx'
+import ServiceConfigurationPage from './pages/ServiceConfigurationPage.jsx'
 
 export default function App() {
   return (
@@ -37,8 +41,12 @@ export default function App() {
           {/* Global Pages */}
           <Route path="servers" element={<ServersPage />} />
           <Route path="apps" element={<GlobalAppsPage />} />
+          <Route path="apps/resource" element={<NewResourcePage/>} />
           <Route path="databases" element={<GlobalDatabasesPage />} />
           <Route path="databases/:id" element={<DatabaseDetailPage />} />
+          // In your router
+          <Route path="/apps/new/git/public-repo" element={<PublicRepoDeployPage />} />
+          <Route path="/apps/:serviceId" element={<ServiceConfigurationPage />} />
 
           {/* Settings, Monitoring, Backups, Logs currently mocked to Coming Soon */}
           <Route path="monitoring" element={<ComingSoonPage />} />

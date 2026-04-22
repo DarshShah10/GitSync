@@ -7,6 +7,7 @@ export const QUEUE_NAMES = {
   SERVER_CHECK:   'server-check',
   SERVICE_CREATE: 'service-create',   // was DATABASE_CREATE
   BACKUP_RUN:     'backup-run',
+  APP_DEPLOY:     'app-deploy',
 }
 
 // Backward-compat alias — old code that imports DATABASE_CREATE still works
@@ -54,3 +55,16 @@ export const backupQueue = new Queue(QUEUE_NAMES.BACKUP_RUN, {
     removeOnFail:     { count: 50 },
   },
 })
+
+
+
+// ── NEW: App deployment queue ─────────────────────────────────────────────────
+export const appDeployQueue = new Queue(QUEUE_NAMES.APP_DEPLOY, {
+  connection: createRedisConnection(),
+  defaultJobOptions: {
+    attempts:         1,         // Don't auto-retry deploys — user should trigger manually
+    removeOnComplete: { count: 100 },
+    removeOnFail:     { count: 100 },
+  },
+})
+ 
