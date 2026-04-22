@@ -36,6 +36,22 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── MongoDB ─────────────────────────────────────────────────────────
+  mongodb:
+    image: mongo:6.0
+    container_name: dbshift_mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:
   redis_data:
+  mongo_data:
