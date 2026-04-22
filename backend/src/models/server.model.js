@@ -38,7 +38,8 @@ const ServerSchema = new Schema(
     dockerVersion: { type: String, default: null },
     lastCheckedAt: { type: Date, default: null },
     errorMessage:  { type: String, default: null },
-
+    nixpacksVersion:  { type: String, default: null }, // e.g. "0.8.4"
+    setupCompletedAt: { type: Date,   default: null }, // when Phase 1 setup finished
     usedPorts:     { type: [UsedPortSchema], default: [] },
     credential:    { type: ServerCredentialSchema, default: null },
   },
