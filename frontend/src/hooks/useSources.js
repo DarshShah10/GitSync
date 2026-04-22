@@ -11,11 +11,13 @@ export function useSources() {
   return useQuery({ queryKey: KEYS.list(), queryFn: sourcesApi.list })
 }
 
-export function useSource(id) {
+export function useSource(id, options = {}) {
+  const { enabled, ...rest } = options
   return useQuery({
     queryKey: KEYS.detail(id),
     queryFn:  () => sourcesApi.get(id),
-    enabled:  !!id,
+    enabled:  (!!id) && (enabled ?? true),
+    ...rest,
   })
 }
 

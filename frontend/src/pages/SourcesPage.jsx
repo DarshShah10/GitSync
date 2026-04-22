@@ -5,6 +5,7 @@ import {
   useCreateSource,
   useDeleteSource,
   useInitiateAutomated,
+  useSource,
 } from '../hooks/useSources.js'
 import toast from 'react-hot-toast'
 
@@ -39,6 +40,55 @@ const labelStyle = {
   color: '#71717a', marginBottom: 6,
 }
 const fieldStyle = { marginBottom: 16 }
+const sectionTitleStyle = {
+  fontSize: 12,
+  fontWeight: 800,
+  letterSpacing: '0.12em',
+  textTransform: 'uppercase',
+  color: '#5f5f67',
+  margin: '12px 0 10px',
+}
+const detailBoxStyle = {
+  background: '#0b0b0d',
+  borderRadius: 14,
+  border: '1px solid rgba(255,255,255,0.05)',
+  padding: 18,
+  marginBottom: 18,
+}
+const detailGridStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))',
+  gap: 14,
+}
+const detailLabelStyle = {
+  fontSize: 10,
+  fontWeight: 700,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  color: '#54545a',
+  marginBottom: 4,
+}
+const detailValueStyle = {
+  fontSize: 12,
+  color: '#d4d4d8',
+  wordBreak: 'break-word',
+}
+const helperTextStyle = {
+  fontSize: 11,
+  color: '#71717a',
+  marginTop: 4,
+}
+const copyBtnStyle = {
+  marginLeft: 8,
+  padding: '2px 8px',
+  fontSize: 10,
+  fontWeight: 600,
+  borderRadius: 6,
+  border: '1px solid rgba(255,255,255,0.08)',
+  background: '#1c1c1f',
+  color: '#a1a1aa',
+  cursor: 'pointer',
+}
 
 // ── GitHub icon ──────────────────────────────────────────────────────
 function GithubIcon({ size = 24, color = 'currentColor' }) {
@@ -380,6 +430,7 @@ function AddSourceModal({ onClose, onCreated }) {
 // ── Source Card ──────────────────────────────────────────────────────
 function SourceCard({ source, onDelete }) {
   const [confirmDel, setConfirmDel] = useState(false)
+  const [showDetails, setShowDetails] = useState(false)
 
   const typeLabel = source.installationType === 'automated' ? 'Automated' : 'Manual'
   const typeColor = source.installationType === 'automated' ? '#ba9eff' : '#71717a'
@@ -466,6 +517,19 @@ function SourceCard({ source, onDelete }) {
         ))}
       </div>
 
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: showDetails ? 16 : 4 }}>
+        <button
+          style={{ ...ghostBtn, fontSize: 12, padding: '6px 14px' }}
+          onClick={() => setShowDetails(v => !v)}
+        >
+          {showDetails ? 'Hide details' : 'View details'}
+        </button>
+      </div>
+
+      {showDetails && (
+        <SourceDetails sourceId={source.id || source._id} />
+      )}
+
       {/* Actions */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 8,
@@ -481,6 +545,173 @@ function SourceCard({ source, onDelete }) {
             <button style={ghostBtn}  onClick={() => setConfirmDel(false)}>No</button>
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+function SourceDetails({ sourceId }) {
+  const { data, isLoading, isError } = useSource(sourceId, { staleTime: 30_000 })
+  const detail = data?.data ?? {}
+
+  if (isLoading) {
+    return (
+      <div style={detailBoxStyle}>
+        <div style={{ fontSize: 12, color: '#71717a' }}>Loading details…</div>
+      </div>
+    )
+  }
+
+  if (isError || !detail) {
+    return (
+      <div style={detailBoxStyle}>
+        <div style={{ fontSize: 12, color: '#ff6e84' }}>Failed to load source details.</div>
+      </div>
+    )
+  }
+
+  const permissions = {
+    contents: 'Read',
+    metadata: 'Read',
+    pull_requests: 'Read',
+    ...detail.permissions,
+  }
+
+  return (
+    <div style={{ ...detailBoxStyle, marginBottom: 20 }}>
+      <div style={sectionTitleStyle}>Main Fields</div>
+      <div style={detailGridStyle}>
+        <DetailField label="App Name" value={detail.name} />
+        <DetailField label="Organization" value={detail.organization || '—'} />
+        <DetailField label="System Wide?" value={detail.isSystemWide ? 'Yes' : 'No'} />
+      </div>
+
+      <div style={sectionTitleStyle}>URLs</div>
+      <div style={detailGridStyle}>
+        <DetailField label="HTML URL" value={detail.htmlUrl} monospace copyable />
+        <DetailField label="API URL" value={detail.apiUrl} monospace copyable />
+      </div>
+
+      <div style={sectionTitleStyle}>Connection Details</div>
+      <div style={detailGridStyle}>
+        <DetailField label="User" value={detail.gitUser} monospace copyable />
+        <DetailField label="Port" value={detail.gitPort} monospace copyable />
+      </div>
+
+      <div style={sectionTitleStyle}>App Credentials</div>
+      <div style={detailGridStyle}>
+        <DetailField label="App ID" value={detail.appId} monospace copyable />
+        <DetailField label="Installation ID" value={detail.installationId} monospace copyable />
+        <DetailField label="Client ID" value={detail.clientId} monospace copyable />
+        <SecretField label="Client Secret" value={detail.clientSecret} />
+        <SecretField label="Webhook Secret" value={detail.webhookSecret} />
+      </div>
+      <SecretField label="Private Key" value={detail.privateKey} multiline helper="Stored as provided by GitHub" />
+
+      <div style={sectionTitleStyle}>Permissions</div>
+      <div style={detailGridStyle}>
+        <DetailField label="Contents" value={permissions.contents} />
+        <DetailField label="Metadata" value={permissions.metadata} />
+        <DetailField label="Pull Request" value={permissions.pull_requests || permissions.pullRequests} />
+      </div>
+    </div>
+  )
+}
+
+function DetailField({ label, value, monospace, copyable }) {
+  const display = value ?? '—'
+
+  const handleCopy = async () => {
+    if (!value) return
+    try {
+      await navigator.clipboard.writeText(String(value))
+      toast.success('Copied to clipboard')
+    } catch (err) {
+      console.error('Copy failed', err)
+      toast.error('Failed to copy')
+    }
+  }
+
+  return (
+    <div>
+      <div style={detailLabelStyle}>{label}</div>
+      <div style={{ ...detailValueStyle, fontFamily: monospace ? 'monospace' : 'inherit', display: 'flex', alignItems: 'center' }}>
+        <span style={{ flex: 1 }}>{display}</span>
+        {copyable && value && (
+          <button type="button" style={copyBtnStyle} onClick={handleCopy}>Copy</button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function SecretField({ label, value, multiline = false, helper }) {
+  const [revealed, setRevealed] = useState(false)
+  const hasValue = !!value
+
+  const handleCopy = async () => {
+    if (!hasValue) return
+    try {
+      await navigator.clipboard.writeText(String(value))
+      toast.success('Copied to clipboard')
+    } catch (err) {
+      console.error('Copy failed', err)
+      toast.error('Failed to copy')
+    }
+  }
+
+  const masked = hasValue ? '••••••••••' : '—'
+
+  return (
+    <div style={{ marginBottom: multiline ? 18 : 0 }}>
+      <div style={detailLabelStyle}>{label}</div>
+      <div style={{ ...detailValueStyle, position: 'relative' }}>
+        {multiline ? (
+          revealed && hasValue ? (
+            <pre style={{
+              margin: 0,
+              padding: 12,
+              background: '#080809',
+              border: '1px solid rgba(255,255,255,0.05)',
+              borderRadius: 10,
+              fontFamily: 'monospace',
+              fontSize: 11,
+              maxHeight: 200,
+              overflow: 'auto',
+              whiteSpace: 'pre-wrap',
+            }}>{value}</pre>
+          ) : (
+            <div style={{
+              padding: 12,
+              borderRadius: 10,
+              background: '#080809',
+              border: '1px solid rgba(255,255,255,0.05)',
+              color: '#3f3f46',
+              fontSize: 12,
+            }}>{masked}</div>
+          )
+        ) : (
+          <span style={{ fontFamily: 'monospace' }}>{revealed && hasValue ? value : masked}</span>
+        )}
+        <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+          <button
+            type="button"
+            style={copyBtnStyle}
+            onClick={() => setRevealed(v => !v)}
+            disabled={!hasValue}
+          >
+            {revealed ? 'Hide' : 'Reveal'}
+          </button>
+          <button
+            type="button"
+            style={copyBtnStyle}
+            onClick={handleCopy}
+            disabled={!hasValue}
+          >
+            Copy
+          </button>
+        </div>
+        {helper && <div style={helperTextStyle}>{helper}</div>}
       </div>
     </div>
   )
