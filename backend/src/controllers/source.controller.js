@@ -120,7 +120,7 @@ export async function githubAppCallback(request, reply) {
   try {
     const { code, state: sourceId, installation_id } = request.query ?? {}
 
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173'
+    const frontendUrl = process.env.CLIENT_URL || 'http://localhost:5173'
 
     if (!sourceId) return reply.redirect(`${frontendUrl}/sources?error=missing_state`)
 
@@ -135,7 +135,7 @@ export async function githubAppCallback(request, reply) {
 
     return reply.redirect(`${frontendUrl}/sources?connected=true&sourceId=${sourceId}`)
   } catch {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173'
+    const frontendUrl = process.env.CLIENT_URL || 'http://localhost:5173'
     return reply.redirect(`${frontendUrl}/sources?error=callback_failed`)
   }
 }

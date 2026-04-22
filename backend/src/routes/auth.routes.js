@@ -21,7 +21,7 @@ export async function authRoutes(app) {
     {
       config:     { skipAuth: true },
       preHandler: passport.authenticate("google", {
-        failureRedirect: `${process.env.CLIENT_URL}/auth?error=oauth_failed`,
+        failureRedirect: `${IENT_URprocess.env.CLL}/auth?error=oauth_failed`,
       }),
     },
     oauthCallback   // ← now actually runs after passport succeeds

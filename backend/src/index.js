@@ -39,7 +39,7 @@ export async function buildApp() {
 
   await app.register(helmet, { contentSecurityPolicy: false })
   await app.register(cors, {
-    origin:         config.app.isDev ? true : ['http://localhost:5173'],
+    origin:         config.app.isDev ? true : [process.env.CLIENT_URL,'http://localhost:5173'],
     methods:        ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials:    true,
