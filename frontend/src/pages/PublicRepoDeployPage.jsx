@@ -315,8 +315,12 @@ export default function PublicRepoDeployPage() {
         isStatic,
         type: 'APP',
       })
+      console.log(data.serverId)
+      console.log(data.data.serviceId)
+      console.log(data)
+      // console.log(data.data.serverId)
 
-      navigate(`/apps/${data.serviceId}`)
+      navigate(`/apps/${data.data.serviceId}`)
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to create service')
     } finally {

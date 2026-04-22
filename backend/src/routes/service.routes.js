@@ -1,44 +1,65 @@
 import {
     createService,
+    deployService,
+    streamDeploymentLogs,
+    getDeployments,
     checkRepo,
     getService,
     getAllServices,
+    updateService,
   } from '../controllers/service.controller.js'
   import { handleResult } from '../utils/index.js'
-//   import preHandler from '../middleware/preHandler.js'
-  import { attachUser } from '../middlewares/auth.middleware.js'
-
+  
   export async function serviceRoutes(app) {
   
-    // GET /api/services/check-repo?url=...
-    // NOTE: must be registered BEFORE /:serviceId
-    // otherwise Fastify matches "check-repo" as the serviceId param
+    // ── Must be before /:serviceId so Fastify doesn't treat "check-repo" as a param
     app.get('/api/services/check-repo', async (request, reply) => {
       const result = await checkRepo(request)
       return handleResult(reply, result)
     })
   
-    // GET /api/services
-    // Returns all services for the logged-in user
+    // GET  /api/services          — list all user's services
     app.get('/api/services', async (request, reply) => {
       const result = await getAllServices(request)
       return reply.send(result)
     })
   
-    // POST /api/services
-    // Creates a new service, returns { serviceId, name }
+    // POST /api/services          — create service (returns serviceId)
     app.post('/api/services', async (request, reply) => {
-        console.log("server creation",request.body)   
       const result = await createService(request)
-      console.log('[serviceRoutes] createService result:', result)
       return handleResult(reply, result)
     })
   
-    // GET /api/services/:serviceId
-    // Returns a single service by its MongoDB _id
+    // GET  /api/services/:serviceId       — get one service
     app.get('/api/services/:serviceId', async (request, reply) => {
       const result = await getService(request)
       return handleResult(reply, result)
+    })
+  
+    // PATCH /api/services/:serviceId      — save config (domain, envVars, buildPack etc.)
+    app.patch('/api/services/:serviceId', async (request, reply) => {
+      const result = await updateService(request)
+      return handleResult(reply, result)
+    })
+  
+    // POST /api/services/:serviceId/deploy  — queue a deployment job, returns deploymentId
+    app.post('/api/services/:serviceId/deploy', async (request, reply) => {
+      const result = await deployService(request)
+      return handleResult(reply, result)
+    })
+  
+    // GET  /api/services/:serviceId/deployments  — deployment history
+    app.get('/api/services/:serviceId/deployments', async (request, reply) => {
+      const result = await getDeployments(request)
+      return reply.send(result)
+    })
+  
+    // GET  /api/deployments/:deploymentId/logs  — SSE stream of live build logs
+    // Browser: const es = new EventSource('/api/deployments/:id/logs')
+    // Events:  data (log line) | done (finished) | timeout
+    app.get('/api/deployments/:deploymentId/logs', async (request, reply) => {
+      // streamDeploymentLogs handles the raw reply directly (SSE)
+      return streamDeploymentLogs(request, reply)
     })
   
   }
