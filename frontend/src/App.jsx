@@ -10,6 +10,8 @@ import ComingSoonPage from './pages/ComingSoonPage.jsx'
 import GlobalDatabasesPage from './pages/GlobalDatabasesPage.jsx'
 import GlobalAppsPage from './pages/GlobalAppsPage.jsx'
 import DatabaseDetailPage from './pages/DatabaseDetailPage.jsx'
+// Sources
+import SourcesPage from './pages/SourcesPage.jsx'
 // Server Workspace
 import ServerWorkspaceLayout from './pages/server/ServerWorkspaceLayout.jsx'
 import ServerOverview from './pages/server/ServerOverview.jsx'
@@ -42,7 +44,8 @@ export default function App() {
 
           {/* Settings, Monitoring, Backups, Logs currently mocked to Coming Soon */}
           <Route path="monitoring" element={<ComingSoonPage />} />
-          <Route path="settings" element={<ComingSoonPage />} />
+          <Route path="settings"   element={<ComingSoonPage />} />
+          <Route path="sources"    element={<SourcesPage />} />
 
           {/* Single Server Workspace */}
           <Route path="servers/:id" element={<ServerWorkspaceLayout />}>

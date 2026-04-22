@@ -14,6 +14,7 @@ import { healthRoutes } from './routes/health.routes.js'
 import { serverRoutes } from './routes/server.routes.js'
 import { databaseRoutes } from './routes/database.routes.js'
 import { projectRoutes } from './routes/project.routes.js'
+import { sourceRoutes }  from './routes/source.routes.js'
 import { authRoutes }   from './routes/auth.routes.js'
 import { startAllWorkers, stopAllWorkers } from './jobs/workers.js'
 
@@ -80,6 +81,7 @@ export async function buildApp() {
   await app.register(serverRoutes)
   await app.register(databaseRoutes)
   await app.register(projectRoutes)
+  await app.register(sourceRoutes)
 
   app.get('/', async () => ({
     name:    'GitSync API',
