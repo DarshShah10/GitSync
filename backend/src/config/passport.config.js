@@ -33,47 +33,53 @@ async function findOrCreate({ field, id, email, name, avatarUrl, provider }) {
   });
 }
 
-passport.use(
-  new GoogleStrategy(
-    {
-      clientID:     process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL:  `${process.env.SERVER_URL}/api/auth/google/callback`,
-    },
-    async (_at, _rt, profile, done) => {
-      try {
-        done(null, await findOrCreate({
-          field: "googleId", id: profile.id,
-          email: profile.emails?.[0]?.value,
-          name:  profile.displayName,
-          avatarUrl: profile.photos?.[0]?.value ?? null,
-          provider: "google",
-        }));
-      } catch (err) { done(err, null); }
-    }
-  )
-);
+// Only register Google strategy if credentials are provided
+if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+  passport.use(
+    new GoogleStrategy(
+      {
+        clientID:     process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        callbackURL:  `${process.env.SERVER_URL}/api/auth/google/callback`,
+      },
+      async (_at, _rt, profile, done) => {
+        try {
+          done(null, await findOrCreate({
+            field: "googleId", id: profile.id,
+            email: profile.emails?.[0]?.value,
+            name:  profile.displayName,
+            avatarUrl: profile.photos?.[0]?.value ?? null,
+            provider: "google",
+          }));
+        } catch (err) { done(err, null); }
+      }
+    )
+  );
+}
 
-passport.use(
-  new GitHubStrategy(
-    {
-      clientID:     process.env.GITHUB_CLIENT_ID,
-      clientSecret: process.env.GITHUB_CLIENT_SECRET,
-      callbackURL:  `${process.env.SERVER_URL}/api/auth/github/callback`,
-      scope:        ["user:email"],
-    },
-    async (_at, _rt, profile, done) => {
-      try {
-        done(null, await findOrCreate({
-          field: "githubId", id: String(profile.id),
-          email: profile.emails?.[0]?.value,
-          name:  profile.displayName || profile.username,
-          avatarUrl: profile.photos?.[0]?.value ?? null,
-          provider: "github",
-        }));
-      } catch (err) { done(err, null); }
-    }
-  )
-);
+// Only register GitHub strategy if credentials are provided
+if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET) {
+  passport.use(
+    new GitHubStrategy(
+      {
+        clientID:     process.env.GITHUB_CLIENT_ID,
+        clientSecret: process.env.GITHUB_CLIENT_SECRET,
+        callbackURL:  `${process.env.SERVER_URL}/api/auth/github/callback`,
+        scope:        ["user:email"],
+      },
+      async (_at, _rt, profile, done) => {
+        try {
+          done(null, await findOrCreate({
+            field: "githubId", id: String(profile.id),
+            email: profile.emails?.[0]?.value,
+            name:  profile.displayName || profile.username,
+            avatarUrl: profile.photos?.[0]?.value ?? null,
+            provider: "github",
+          }));
+        } catch (err) { done(err, null); }
+      }
+    )
+  );
+}
 
 export { passport };

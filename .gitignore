@@ -6,7 +6,7 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
-
+.claude 
 # Diagnostic reports
 node_report.csv
 v8.out
@@ -39,4 +39,6 @@ out/
 # Project specific
 prisma/migrations/
 postman/
+.postman/
+.claude/
 *.DS_Store
