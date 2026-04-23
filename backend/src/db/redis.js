@@ -1,31 +1,53 @@
 import IORedis from 'ioredis'
 import { config } from '../constants/index.js'
 
-// BullMQ requires a specific Redis connection config
-export function createRedisConnection() {
-  const connection = new IORedis({
-    host: config.redis.host,
-    port: config.redis.port,
-    password: config.redis.password,
-    maxRetriesPerRequest: null, // required by BullMQ
-    enableReadyCheck: false,    // required by BullMQ
-  })
-
-  connection.on('connect', () => {
-    // console.log('Redis connected')
-  })
-
-  connection.on('error', (err) => {
-    console.error('Redis connection error:', err.message)
-  })
-
-  return connection
+function parseRedisUrl(url) {
+  if (!url) return null
+  try {
+    const u = new URL(url)
+    return {
+      host:     u.hostname,
+      port:     parseInt(u.port, 10) || (u.protocol === 'rediss:' ? 6380 : 6379),
+      password: u.password || undefined,
+      username: u.username || undefined,
+      tls:      u.protocol === 'rediss:' ? {} : undefined,
+    }
+  } catch {
+    return null
+  }
 }
 
-// Shared connection for general use (non-BullMQ)
-export const redis = new IORedis({
-  host: config.redis.host,
-  port: config.redis.port,
-  password: config.redis.password,
-  lazyConnect: true,
+function makeOptions(overrides = {}) {
+  // If a full URL is provided, parse it; otherwise fall back to host/port/pass
+  const fromUrl = parseRedisUrl(config.redis.url)
+
+  return {
+    ...(fromUrl ?? {
+      host:     config.redis.host,
+      port:     config.redis.port,
+      password: config.redis.password,
+    }),
+    maxRetriesPerRequest: null,   // required by BullMQ
+    enableReadyCheck:     false,  // required by BullMQ
+    retryStrategy(times) {
+      return Math.min(times * 200, 5_000)
+    },
+    ...overrides,
+  }
+}
+
+export function createRedisConnection() {
+  const conn = new IORedis(makeOptions())
+
+  conn.on('error', (err) => {
+    console.error('[redis] connection error:', err.message)
+  })
+
+  return conn
+}
+
+export const redis = new IORedis(makeOptions({ lazyConnect: true }))
+
+redis.on('error', (err) => {
+  console.error('[redis] shared connection error:', err.message)
 })
