@@ -18,6 +18,7 @@ import { sourceRoutes }  from './routes/source.routes.js'
 import { authRoutes }   from './routes/auth.routes.js'
 import { startAllWorkers, stopAllWorkers } from './jobs/workers.js'
 import { serviceRoutes } from './routes/service.routes.js'
+import { domainRoutes } from './routes/domain.routes.js'
 
 export async function buildApp() {
   const app = Fastify({
@@ -74,7 +75,7 @@ export async function buildApp() {
   await app.register(projectRoutes)
   await app.register(serviceRoutes)
   await app.register(sourceRoutes)
-
+  await app.register(domainRoutes)
   app.get('/', async () => ({
     name:    'GitSync API',
     version: '3.0.0',

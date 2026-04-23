@@ -5,3 +5,4 @@ export { projectRoutes } from "./project.routes.js";
 export { serverRoutes } from "./server.routes.js";
 export { serviceRoutes } from "./service.routes.js";
 export { sourceRoutes } from "./source.routes.js";
+export { domainRoutes } from "./domain.routes.js";

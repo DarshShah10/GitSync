@@ -22,6 +22,7 @@ import ServerDatabases from './pages/server/ServerDatabases.jsx'
 import PublicRepoDeployPage from './pages/PublicRepoDeployPage.jsx'
 import PrivateRepoDeployPage from './pages/PrivateRepoDeployPage.jsx'
 import ServiceConfigurationPage from './pages/ServiceConfigurationPage.jsx'
+import DomainPage from './pages/DomainPage.jsx'
 
 export default function App() {
   return (
@@ -43,6 +44,7 @@ export default function App() {
 
           {/* Global Pages */}
           <Route path="servers" element={<ServersPage />} />
+          <Route path="domains" element={<DomainPage />} />
           <Route path="apps" element={<GlobalAppsPage />} />
           <Route path="apps/resource" element={<NewResourcePage/>} />
           <Route path="databases" element={<GlobalDatabasesPage />} />
