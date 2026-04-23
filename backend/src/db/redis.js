@@ -12,7 +12,7 @@ export function createRedisConnection() {
   })
 
   connection.on('connect', () => {
-    console.log('Redis connected')
+    // console.log('Redis connected')
   })
 
   connection.on('error', (err) => {

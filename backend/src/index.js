@@ -22,17 +22,7 @@ import { serviceRoutes } from './routes/service.routes.js'
 export async function buildApp() {
   const app = Fastify({
     logger: {
-      level: config.app.isDev ? 'debug' : 'info',
-      transport: config.app.isDev
-        ? {
-            target:  'pino-pretty',
-            options: {
-              colorize:      true,
-              translateTime: 'SYS:standard',
-              ignore:        'pid,hostname',
-            },
-          }
-        : undefined,
+      level: 'error' // only show errors
     },
     genReqId:   () => crypto.randomUUID(),
     trustProxy: config.app.isProd,
