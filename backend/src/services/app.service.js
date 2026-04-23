@@ -611,6 +611,7 @@ export async function runContainer(serverConfig, { containerName, imageName, ima
     `--name ${containerName}`,
     `--network ${PLATFORM_NETWORK}`,
     '--restart unless-stopped',
+    `--env PORT=${internalPort}`,  
     envFlags,
     // NOT exposed on host port — only reachable via the platform Docker network
     // Nginx is the only thing that talks to this container
@@ -631,15 +632,13 @@ export async function runContainer(serverConfig, { containerName, imageName, ima
 }
 
 // ── Step 5: Write Nginx config and reload ─────────────────────────────────────
-
 export async function writeNginxConfig(serverConfig, { containerName, internalPort, domain }, opts = {}) {
   const log = (msg) => opts.onLog?.(msg)
   const confFile = nginxConfPath(containerName)
+  const hostname = domain.replace(/^https?:\/\//, '')
 
   log(`Writing Nginx config for domain "${domain}"…`)
 
-  const hostname = domain.replace(/^https?:\/\//, '')
-  // Build the nginx server block
   const conf = [
     'server {',
     '    listen 80;',
@@ -650,7 +649,7 @@ export async function writeNginxConfig(serverConfig, { containerName, internalPo
     '        proxy_http_version 1.1;',
     '        proxy_set_header Upgrade $http_upgrade;',
     '        proxy_set_header Connection "upgrade";',
-    `        proxy_set_header Host $host;`,
+    '        proxy_set_header Host $host;',
     '        proxy_set_header X-Real-IP $remote_addr;',
     '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;',
     '        proxy_set_header X-Forwarded-Proto $scheme;',
@@ -660,45 +659,37 @@ export async function writeNginxConfig(serverConfig, { containerName, internalPo
     '}',
   ].join('\n')
 
-  // Write config file using heredoc — safer than escaping
-  const { code: writeCode, stderr: writeErr } = await runCommand(
+  // Remove old conflicting configs + ensure hash bucket size
+  await runCommand(
     serverConfig,
-    `mkdir -p ${NGINX_CONFIG_DIR} && cat > ${confFile} << 'NGINXEOF'\n${conf}\nNGINXEOF`,
+    [
+      `grep -rl "server_name ${hostname}" ${NGINX_CONFIG_DIR}/ 2>/dev/null | xargs rm -f 2>/dev/null || true`,
+      `grep -q "server_names_hash_bucket_size" ${NGINX_CONFIG_DIR}/00-hash.conf 2>/dev/null || printf 'server_names_hash_bucket_size 128;\\n' > ${NGINX_CONFIG_DIR}/00-hash.conf`,
+    ].join(' && '),
     { timeout: 15000 }
   )
 
-  if (writeCode !== 0) throw new Error(`Failed to write nginx config: ${writeErr}`)
-
-  log('Nginx config written. Validating…')
-
-  // Validate — a bad config kills ALL apps on this VM
-  const { code: testCode, stderr: testErr } = await runCommand(
+  // Write, validate and reload in ONE ssh connection
+  const escapedConf = conf.replace(/\\/g, '\\\\').replace(/'/g, `'\\''`)
+  const { code: allCode, stdout: allOut, stderr: allErr } = await runCommand(
     serverConfig,
-    `docker exec ${PLATFORM_NGINX} nginx -t 2>&1`,
-    { timeout: 15000 }
+    [
+      `mkdir -p ${NGINX_CONFIG_DIR}`,
+      `printf '%s\n' '${escapedConf}' > ${confFile}`,
+      `docker exec ${PLATFORM_NGINX} nginx -t 2>&1`,
+      `docker exec ${PLATFORM_NGINX} nginx -s reload 2>&1`,
+    ].join(' && '),
+    { timeout: 60000 }
   )
 
-  if (testCode !== 0) {
-    // Remove the bad config so we don't break nginx
-    await runCommand(serverConfig, `rm -f ${confFile}`, { timeout: 10000 })
-    throw new Error(`Nginx config validation failed: ${testErr}`)
+  if (allCode !== 0) {
+    await runCommand(serverConfig, `rm -f ${confFile}`, { timeout: 15000 })
+    throw new Error(`Nginx config validation failed: ${allOut || allErr}`)
   }
-
-  log('Nginx config valid. Reloading…')
-
-  // Reload nginx — zero downtime
-  const { code: reloadCode } = await runCommand(
-    serverConfig,
-    `docker exec ${PLATFORM_NGINX} nginx -s reload`,
-    { timeout: 15000 }
-  )
-
-  if (reloadCode !== 0) throw new Error('Nginx reload failed')
 
   log(`Nginx reloaded. App accessible at http://${hostname} ✓`)
   return { confFile }
 }
-
 // ── Step 6: Cleanup ───────────────────────────────────────────────────────────
 
 export async function cleanupBuild(serverConfig, { buildDir, oldImageName }, opts = {}) {
