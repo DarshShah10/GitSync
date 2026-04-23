@@ -86,7 +86,7 @@ export async function initiateAutomatedInstall(request) {
     appId:           slug,
   })
 
-  const backendUrl  = process.env.BACKEND_URL || 'http://localhost:3000'
+  const backendUrl  = process.env.SERVER_URL || 'http://localhost:3000'
   const callbackUrl = `${backendUrl}/api/sources/github/callback`
 
   // GitHub's App Manifest flow requires a POST form submission — not a GET redirect.
