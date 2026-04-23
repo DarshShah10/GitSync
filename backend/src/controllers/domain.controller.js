@@ -42,23 +42,32 @@ export async function createDomain(request) {
   if (count >= MAX_PER_USER) {
     return { error: `You can only have ${MAX_PER_USER} domains`, status: 429 }
   }
+//   console.log("first")
 
+console.log('[createDomain] userId:', request.user.id, typeof request.user.id)
+console.log('[createDomain] subdomain:', subdomain)
   try {
     const domain = await Domain.create({
       userId: request.user.id,
       subdomain,
     })
-
+    // console.log("second")
     // No IP yet — zone file doesn't need updating until user sets one
     return { success: true, data: domain.toJSON(), status: 201 }
 
-  } catch (err) {
-    if (err.code === 11000) {
-      return { error: 'Subdomain is already taken', status: 409 }
-    }
-    console.error('[createDomain]', err)
-    return { error: 'Failed to create domain', status: 500 }
+} catch (err) {
+  console.error('[createDomain] full error:', {
+    code: err.code,
+    message: err.message,
+    errors: err.errors,        // ← Mongoose validation errors
+    keyValue: err.keyValue,    // ← which field caused 11000
+  })
+
+  if (err.code === 11000) {
+    return { error: 'Subdomain is already taken', status: 409 }
   }
+  return { error: 'Failed to create domain', status: 500 }
+}
 }
 
 

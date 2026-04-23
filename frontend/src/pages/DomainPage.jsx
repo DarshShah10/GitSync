@@ -125,6 +125,7 @@ export default function DomainPage() {
   const {
     domains,
     isLoading,
+    isCreating,
     refetch,
     createDomain,
     updateDomain,
@@ -134,20 +135,23 @@ export default function DomainPage() {
 
   function handleCreate() {
     if (!subdomain) {
-      toast.error('Enter subdomain')
-      return
+        toast.error('Enter subdomain')
+        return
     }
 
+    const cleaned = subdomain.trim().toLowerCase()
+    console.log('[create] sending subdomain:', cleaned)  // ← debug
+
     createDomain(
-        { subdomain },
+        { subdomain: cleaned },
         {
-            onSuccess: () => {
+        onSuccess: () => {
             toast.success('Domain created')
             setSubdomain('')
-            },
-            onError: (err) => {
-            toast.error(err.message) // ✅ now works
-            }
+        },
+        onError: (err) => {
+            toast.error(err.message)
+        }
         }
     )
   }
@@ -191,8 +195,16 @@ export default function DomainPage() {
           .{cleanBaseDomain}
         </span>
 
-        <button style={primaryBtnStyle} onClick={handleCreate}>
-          add domain
+        <button
+            style={{
+                ...primaryBtnStyle,
+                opacity: isCreating ? 0.5 : 1,
+                cursor: isCreating ? 'not-allowed' : 'pointer',
+            }}
+            onClick={handleCreate}
+            disabled={isCreating}   // ← prevents double-click
+            >
+            {isCreating ? 'adding...' : 'add domain'}
         </button>
       </div>
 
