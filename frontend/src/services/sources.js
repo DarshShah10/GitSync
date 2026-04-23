@@ -18,4 +18,13 @@ export const sourcesApi = {
 
   remove: (id) =>
     api.delete(`/api/sources/${id}`).then(r => r.data),
+
+  listInstallations: (id) =>
+    api.get(`/api/sources/${id}/installations`).then(r => r.data),
+
+  setInstallationId: (id, installationId) =>
+    api.post(`/api/sources/${id}/installation`, { installationId }).then(r => r.data),
+
+  listRepos: (id) =>
+    api.get(`/api/sources/${id}/repos`).then(r => r.data),
 }

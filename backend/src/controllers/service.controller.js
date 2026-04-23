@@ -253,3 +253,79 @@ export const updateService = async (request) => {
     return { error: err.message, status: 500 }
   }
 }
+
+// ─── POST /api/services/private — create service from private GitHub repo ─────
+import { GitHubSource } from '../models/githubSource.model.js'
+import { checkRepoAccess } from '../services/github.service.js'
+
+export const createPrivateService = async (request) => {
+  try {
+    const {
+      serverId, githubSourceId, repoUrl,
+      branch, baseDir, buildPack, internalPort, isStatic,
+    } = request.body ?? {}
+
+    if (!repoUrl)         return { error: 'repoUrl is required', status: 400 }
+    if (!serverId)        return { error: 'serverId is required', status: 400 }
+    if (!githubSourceId)  return { error: 'githubSourceId is required', status: 400 }
+
+    const server = await Server.findOne({ _id: serverId, userId: request.user.id })
+    if (!server) return { error: 'Server not found', status: 404 }
+    if (server.status !== 'CONNECTED') return { error: `Server "${server.name}" is not connected`, status: 400 }
+
+    const source = await GitHubSource.findOne({ _id: githubSourceId, userId: request.user.id })
+    if (!source) return { error: 'GitHub source not found', status: 404 }
+    if (!source.isConnected) return { error: 'GitHub source is not connected', status: 400 }
+
+    const name = repoUrl.split('/').pop().replace('.git', '') || 'my-app'
+
+    const service = await Service.create({
+      userId:         request.user.id,
+      serverId,
+      name,
+      type:           'APP',
+      status:         'STOPPED',
+      internalPort:   internalPort || 3000,
+      repoType:       'private',
+      githubSourceId: source._id,
+      config: {
+        repoUrl,
+        branch:    branch    || 'main',
+        baseDir:   baseDir   || '/',
+        buildPack: buildPack || 'NIXPACKS',
+      },
+    })
+
+    return { status: 201, data: { serviceId: service._id, name: service.name } }
+  } catch (err) {
+    console.error('[createPrivateService]', err)
+    return { error: err.message || 'Failed to create service', status: 500 }
+  }
+}
+
+
+// ─── GET /api/services/check-private-repo?url=...&sourceId=... ────────────────
+export const checkPrivateRepo = async (request) => {
+  try {
+    const { url, sourceId } = request.query
+    if (!url)      return { error: 'url is required', status: 400 }
+    if (!sourceId) return { error: 'sourceId is required', status: 400 }
+
+    const source = await GitHubSource.findOne({ _id: sourceId, userId: request.user.id })
+    if (!source) return { error: 'Source not found', status: 404 }
+    if (!source.isConnected) return { error: 'Source is not connected', status: 400 }
+
+    const result = await checkRepoAccess(
+      source.appId,
+      source.installationId,
+      source.privateKey,
+      url,
+      source.apiUrl || 'https://api.github.com'
+    )
+
+    return { data: result }
+  } catch (err) {
+    console.error('[checkPrivateRepo]', err)
+    return { error: err.message, status: 400 }
+  }
+}

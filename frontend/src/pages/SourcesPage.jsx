@@ -755,11 +755,18 @@ export default function SourcesPage() {
   // Handle GitHub OAuth callback redirect
   useEffect(() => {
     const connected  = searchParams.get('connected')
+    const install    = searchParams.get('install')
     const error      = searchParams.get('error')
-    const sourceId   = searchParams.get('sourceId')
+    const appSlug    = searchParams.get('appSlug')
 
     if (connected === 'true') {
       toast.success('GitHub App connected successfully!')
+      refetch()
+      setSearchParams({})
+    } else if (install === 'true' && appSlug) {
+      toast.info('App created! Now install it to your repositories on GitHub.')
+      // Open the GitHub install page for this app
+      window.open(`https://github.com/apps/${appSlug}/installations/new`, '_blank')
       refetch()
       setSearchParams({})
     } else if (error) {

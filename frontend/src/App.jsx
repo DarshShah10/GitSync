@@ -20,6 +20,7 @@ import ServerApps from './pages/server/ServerApps.jsx'
 import ServerDatabases from './pages/server/ServerDatabases.jsx'
 // import { NewResourcePage } from './pages/NewResourcePage.jsx'
 import PublicRepoDeployPage from './pages/PublicRepoDeployPage.jsx'
+import PrivateRepoDeployPage from './pages/PrivateRepoDeployPage.jsx'
 import ServiceConfigurationPage from './pages/ServiceConfigurationPage.jsx'
 
 export default function App() {
@@ -46,8 +47,8 @@ export default function App() {
           <Route path="apps/resource" element={<NewResourcePage/>} />
           <Route path="databases" element={<GlobalDatabasesPage />} />
           <Route path="databases/:id" element={<DatabaseDetailPage />} />
-          // In your router
           <Route path="/apps/new/git/public-repo" element={<PublicRepoDeployPage />} />
+          <Route path="/apps/new/git/github-app" element={<PrivateRepoDeployPage />} />
           <Route path="/apps/:serviceId" element={<ServiceConfigurationPage />} />
 
           {/* Settings, Monitoring, Backups, Logs currently mocked to Coming Soon */}

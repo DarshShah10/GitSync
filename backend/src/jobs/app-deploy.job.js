@@ -15,6 +15,11 @@ import {
   installNixpacks,
   buildServiceNames,
 } from '../services/app.service.js'
+import { GitHubSource } from '../models/githubSource.model.js'
+import {
+  getInstallationToken,
+  buildAuthenticatedCloneUrl,
+} from '../services/github.service.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // app-deploy.job.js
@@ -77,6 +82,28 @@ async function processAppDeploy(job) {
   if (!repoUrl) throw new Error('Service has no repoUrl in config')
   if (!domain)  throw new Error('Service has no domain set — save a domain in Configuration first')
 
+  // ── For private repos, get an installation access token ───────────────────
+  let authenticatedRepoUrl = repoUrl
+  if (service.repoType === 'private' && service.githubSourceId) {
+    await log('[0/7] Fetching GitHub App installation token for private repo…')
+    const source = await GitHubSource.findById(service.githubSourceId)
+    if (!source || !source.isConnected) {
+      throw new Error('GitHub App source is not connected. Re-check the source in Sources page.')
+    }
+    try {
+      const { token } = await getInstallationToken(
+        source.appId,
+        source.installationId,
+        source.privateKey,
+        source.apiUrl || 'https://api.github.com'
+      )
+      authenticatedRepoUrl = buildAuthenticatedCloneUrl(repoUrl, token)
+      await log('Installation token acquired. ✓')
+    } catch (tokenErr) {
+      throw new Error(`Failed to get GitHub installation token: ${tokenErr.message}`)
+    }
+  }
+
   // Build consistent container/image names from serviceId
   const { containerName, imageName } = buildServiceNames(service._id, service.name)
   const oldImageName = service.imageName   // for cleanup after successful deploy
@@ -84,7 +111,7 @@ async function processAppDeploy(job) {
   await log(`═══════════════════════════════════════`)
   await log(`  Deploying: ${service.name}`)
   await log(`  Server:    ${server.name} (${server.ip})`)
-  await log(`  Repo:      ${repoUrl}`)
+  await log(`  Repo:      ${repoUrl}${service.repoType === 'private' ? ' (private)' : ''}`)
   await log(`  Branch:    ${branch}`)
   await log(`  BuildPack: ${buildPack}`)
   await log(`  Domain:    ${domain}`)
@@ -112,7 +139,7 @@ async function processAppDeploy(job) {
   await log('[2/7] Cloning repository…')
   const { buildDir, workDir } = await cloneRepo(
     serverConfig,
-    { deploymentId: deploymentId.toString(), repoUrl, branch, baseDir },
+    { deploymentId: deploymentId.toString(), repoUrl: authenticatedRepoUrl, branch, baseDir },
     { onLog: log, onStdout: (l) => log(l) }
   )
   await job.updateProgress(25)
