@@ -18,13 +18,11 @@ export async function getSource(request) {
   const source = await GitHubSource.findOne({
     _id: request.params.id,
     userId: request.user.id,
-  })
-    .select('-privateKey -clientSecret -webhookSecret')
-    .lean()
+  }).lean()
 
   if (!source) return { error: 'Source not found', status: 404 }
 
-  return { success: true, data: sanitizeSource(source) }
+  return { success: true, data: sanitizeSource(source, true) }
 }
 
 // ─── Create source (manual installation) ─────────────────────────────────────
@@ -127,14 +125,36 @@ export async function githubAppCallback(request, reply) {
     const source = await GitHubSource.findById(sourceId)
     if (!source) return reply.redirect(`${frontendUrl}/sources?error=source_not_found`)
 
-    // In production: exchange `code` with GitHub for credentials
-    // POST https://api.github.com/app-manifests/${code}/conversions
+    // Exchange code with GitHub for app credentials
+    // POST https://api.github.com/app-manifests/{code}/conversions
+    if (code) {
+      const response = await fetch(`https://api.github.com/app-manifests/${code}/conversions`, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+        },
+      })
+
+      if (response.ok) {
+        const appData = await response.json()
+        // GitHub returns: id (appId), client_id, client_secret, webhook_secret, pem (private_key)
+        source.appId = appData.id?.toString() || source.appId
+        source.clientId = appData.client_id || null
+        source.clientSecret = appData.client_secret || null
+        source.webhookSecret = appData.webhook_secret || null
+        source.privateKey = appData.pem || null
+        source.htmlUrl = appData.html_url || 'https://github.com'
+        source.apiUrl = 'https://api.github.com'
+      }
+    }
+
     if (installation_id) source.installationId = installation_id
-    source.isConnected = true
+    source.isConnected = !!(source.appId && source.installationId && source.privateKey)
     await source.save()
 
     return reply.redirect(`${frontendUrl}/sources?connected=true&sourceId=${sourceId}`)
-  } catch {
+  } catch (err) {
+    console.error('GitHub App callback error:', err)
     const frontendUrl = process.env.CLIENT_URL || 'http://localhost:5173'
     return reply.redirect(`${frontendUrl}/sources?error=callback_failed`)
   }
@@ -175,11 +195,23 @@ export async function deleteSource(request) {
 }
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
-function sanitizeSource(src) {
+function sanitizeSource(src, includeSecrets = false) {
   const obj = { ...src }
-  delete obj.privateKey
-  delete obj.clientSecret
-  delete obj.webhookSecret
   obj.id = (obj._id ?? obj.id)?.toString()
+  delete obj._id
+  delete obj.__v
+  delete obj.userId
+
+  // Only mask secrets, don't delete them entirely
+  if (!includeSecrets && obj.privateKey) {
+    obj.privateKey = '***hidden***'
+  }
+  if (!includeSecrets && obj.clientSecret) {
+    obj.clientSecret = '***hidden***'
+  }
+  if (!includeSecrets && obj.webhookSecret) {
+    obj.webhookSecret = '***hidden***'
+  }
+
   return obj
 }
