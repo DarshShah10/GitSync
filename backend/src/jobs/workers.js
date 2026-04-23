@@ -1,8 +1,9 @@
-import { startServerVerifyWorker } from './server-verify.job.js'
-import { startServerCheckWorker } from './server-check.job.js'
+import { startServerVerifyWorker }  from './server-verify.job.js'
+import { startServerCheckWorker }   from './server-check.job.js'
 import { startServiceCreateWorker } from './database-create.job.js'
-import { startBackupWorker } from './backup-run.job.js'
-import { serverCheckQueue } from './queues.js'
+import { startBackupWorker }        from './backup-run.job.js'
+import { startAppDeployWorker }     from './app-deploy.job.js'   // ← new
+import { serverCheckQueue }         from './queues.js'
 
 /**
  * Starts all background job workers and schedules repeatable jobs.
@@ -12,7 +13,6 @@ export async function startAllWorkers() {
   console.log('[workers] Starting background job workers…')
 
   // Schedule the server-check repeatable job (every 60 seconds).
-  // BullMQ deduplicates by jobId, so multiple restarts won't create duplicates.
   await serverCheckQueue.add(
     'check-all-servers',
     {},
@@ -28,6 +28,7 @@ export async function startAllWorkers() {
     startServerCheckWorker(),
     startServiceCreateWorker(),
     startBackupWorker(),
+    startAppDeployWorker(),    // ← new
   ]
 
   console.log(`[workers] ${workers.length} worker(s) running.`)

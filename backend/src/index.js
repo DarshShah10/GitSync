@@ -17,6 +17,7 @@ import { projectRoutes } from './routes/project.routes.js'
 import { sourceRoutes }  from './routes/source.routes.js'
 import { authRoutes }   from './routes/auth.routes.js'
 import { startAllWorkers, stopAllWorkers } from './jobs/workers.js'
+import { serviceRoutes } from './routes/service.routes.js'
 
 export async function buildApp() {
   const app = Fastify({
@@ -81,6 +82,7 @@ export async function buildApp() {
   await app.register(serverRoutes)
   await app.register(databaseRoutes)
   await app.register(projectRoutes)
+  await app.register(serviceRoutes)
   await app.register(sourceRoutes)
 
   app.get('/', async () => ({
