@@ -303,7 +303,7 @@ export default function ServiceConfigurationPage() {
   const [installCmd, setInstallCmd] = useState('')
   const [buildCmd, setBuildCmd]     = useState('')
   const [startCmd, setStartCmd]     = useState('')
-  const [baseDir, setBaseDir]       = useState('/nextjs/ssr')
+  const [baseDir, setBaseDir]       = useState('/Backend')
   const [publishDir, setPublishDir] = useState('/')
   const [envVars, setEnvVars]       = useState([
     { id: 1, key: 'NODE_ENV', value: 'production', isSecret: false },
