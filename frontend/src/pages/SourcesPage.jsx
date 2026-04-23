@@ -764,7 +764,7 @@ export default function SourcesPage() {
       refetch()
       setSearchParams({})
     } else if (install === 'true' && appSlug) {
-      toast.info('App created! Now install it to your repositories on GitHub.')
+      toast('App created! Opening GitHub to install it on your repositories…', { icon: '🔗' })
       // Open the GitHub install page for this app
       window.open(`https://github.com/apps/${appSlug}/installations/new`, '_blank')
       refetch()
