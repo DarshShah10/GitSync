@@ -8,8 +8,10 @@ import {
   getAllServices,
   updateService,
   deleteService,
+  deleteService,
   createPrivateService,
   checkPrivateRepo,
+
 
 } from '../controllers/service.controller.js'
 import {
@@ -72,6 +74,7 @@ export async function serviceRoutes(app) {
   })
 
   // PATCH /api/services/:serviceId      — save config (domain, envVars, buildPack etc.)
+  // PATCH /api/services/:serviceId      — save config (domain, envVars, buildPack etc.)
   app.patch('/api/services/:serviceId', async (request, reply) => {
     const result = await updateService(request)
     return handleResult(reply, result)
@@ -84,11 +87,19 @@ export async function serviceRoutes(app) {
   })
 
   // POST /api/services/:serviceId/deploy  — queue a deployment job, returns deploymentId
+  // DELETE /api/services/:serviceId     — delete service + all deployments & logs
+  app.delete('/api/services/:serviceId', async (request, reply) => {
+    const result = await deleteService(request)
+    return handleResult(reply, result)
+  })
+
+  // POST /api/services/:serviceId/deploy  — queue a deployment job, returns deploymentId
   app.post('/api/services/:serviceId/deploy', async (request, reply) => {
     const result = await deployService(request)
     return handleResult(reply, result)
   })
 
+  // GET  /api/services/:serviceId/deployments  — deployment history
   // GET  /api/services/:serviceId/deployments  — deployment history
   app.get('/api/services/:serviceId/deployments', async (request, reply) => {
     const result = await getDeployments(request)
