@@ -8,7 +8,6 @@ import {
   getAllServices,
   updateService,
   deleteService,
-  deleteService,
   createPrivateService,
   checkPrivateRepo,
 
@@ -86,12 +85,6 @@ export async function serviceRoutes(app) {
     return handleResult(reply, result)
   })
 
-  // POST /api/services/:serviceId/deploy  — queue a deployment job, returns deploymentId
-  // DELETE /api/services/:serviceId     — delete service + all deployments & logs
-  app.delete('/api/services/:serviceId', async (request, reply) => {
-    const result = await deleteService(request)
-    return handleResult(reply, result)
-  })
 
   // POST /api/services/:serviceId/deploy  — queue a deployment job, returns deploymentId
   app.post('/api/services/:serviceId/deploy', async (request, reply) => {
