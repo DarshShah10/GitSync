@@ -42,8 +42,6 @@ export const createService = async (request) => {
 
 
 // POST /api/services/:serviceId/deploy
-// Creates Deployment record + queues BullMQ app-deploy job
-// Returns { deploymentId } — frontend opens SSE to /api/deployments/:deploymentId/logs
 export const deployService = async (request) => {
   try {
     const { serviceId } = request.params
@@ -54,12 +52,10 @@ export const deployService = async (request) => {
     if (!service.domain) {
       return { error: 'No domain configured. Set a domain in Configuration → General first.', status: 400 }
     }
-    console.log("console log doesnt showen up")
+
     const cfg = service.config ?? {}
-    console.log(" configure service config:", cfg)
     if (!cfg.repoUrl) return { error: 'Service has no repoUrl in config', status: 400 }
 
-    // Create Deployment document — status starts as QUEUED
     const deployment = await Deployment.create({
       serviceId:  service._id,
       status:     'QUEUED',
@@ -70,7 +66,6 @@ export const deployService = async (request) => {
 
     await Service.updateOne({ _id: serviceId }, { $set: { status: 'BUILDING' } })
 
-    // Queue the BullMQ job — app-deploy.job.js processes this
     await appDeployQueue.add(
       'deploy',
       { deploymentId: deployment._id.toString() },
@@ -78,7 +73,6 @@ export const deployService = async (request) => {
     )
 
     return { status: 201, data: { deploymentId: deployment._id, message: 'Deployment queued' } }
-    // return { status: 201, data: { deploymentId: deployment._id.toString(), message: 'Deployment queued' } }
 
   } catch (err) {
     console.error('[deployService]', err)
@@ -88,8 +82,6 @@ export const deployService = async (request) => {
 
 
 // GET /api/deployments/:deploymentId/logs  — SSE endpoint
-// Streams DeploymentLog lines to the browser every 500ms
-// Browser uses: const es = new EventSource('/api/deployments/:id/logs')
 export const streamDeploymentLogs = async (request, reply) => {
   const { deploymentId } = request.params
 
@@ -99,7 +91,6 @@ export const streamDeploymentLogs = async (request, reply) => {
   const service = await Service.findOne({ _id: deployment.serviceId, userId: request.user.id })
   if (!service) return reply.status(403).send({ error: 'Forbidden' })
 
-  // SSE headers
   reply.raw.writeHead(200, {
     'Content-Type':      'text/event-stream',
     'Cache-Control':     'no-cache',
@@ -117,7 +108,6 @@ export const streamDeploymentLogs = async (request, reply) => {
   async function poll() {
     if (done) return
     try {
-      // Send any new log lines
       const newLogs = await DeploymentLog.find({ deploymentId, line: { $gt: lastLine } })
         .sort({ line: 1 }).lean()
 
@@ -126,7 +116,6 @@ export const streamDeploymentLogs = async (request, reply) => {
         lastLine = log.line
       }
 
-      // Check if finished
       const current = await Deployment.findById(deploymentId).lean()
       if (['SUCCESS', 'FAILED', 'CANCELLED'].includes(current?.status)) {
         done = true
@@ -144,11 +133,10 @@ export const streamDeploymentLogs = async (request, reply) => {
   }
 
   pollInterval = setInterval(poll, 500)
-  await poll()   // run immediately so first lines appear without waiting 500ms
+  await poll()
 
   request.raw.on('close', () => { done = true; clearInterval(pollInterval) })
 
-  // Safety: stop after 30 minutes
   setTimeout(() => {
     if (!done) {
       done = true
@@ -216,7 +204,10 @@ export const getService = async (request) => {
 // GET /api/services
 export const getAllServices = async (request) => {
   try {
-    const services = await Service.find({ userId: request.user.id })
+    const services = await Service.find({ 
+      userId: request.user.id,
+      status: { $ne: 'ERROR' }        // exclude ERROR status services
+    })
       .sort({ createdAt: -1 }).populate('serverId', 'name ip status')
     return services
   } catch (err) {
@@ -227,7 +218,6 @@ export const getAllServices = async (request) => {
 
 
 // PATCH /api/services/:serviceId
-// Saves changes from the Configuration page (domain, env vars, build commands etc.)
 export const updateService = async (request) => {
   try {
     const { serviceId } = request.params
@@ -251,6 +241,42 @@ export const updateService = async (request) => {
   } catch (err) {
     console.error('[updateService]', err)
     return { error: err.message, status: 500 }
+  }
+}
+
+
+// DELETE /api/services/:serviceId
+// Removes the service and all associated deployments + logs
+export const deleteService = async (request) => {
+  try {
+    const { serviceId } = request.params
+
+    // Verify ownership before deleting
+    const service = await Service.findOne({ _id: serviceId, userId: request.user.id })
+    if (!service) return { error: 'Service not found', status: 404 }
+
+    // Block deletion if a build/deploy is actively in progress
+    if (['BUILDING', 'DEPLOYING'].includes(service.status)) {
+      return {
+        error: `Cannot delete service while it is ${service.status.toLowerCase()}. Stop it first.`,
+        status: 409,
+      }
+    }
+
+    // Cascade delete: logs → deployments → service
+    const deploymentIds = await Deployment.find({ serviceId }).distinct('_id')
+    if (deploymentIds.length > 0) {
+      await DeploymentLog.deleteMany({ deploymentId: { $in: deploymentIds } })
+      await Deployment.deleteMany({ serviceId })
+    }
+
+    await Service.deleteOne({ _id: serviceId })
+
+    return { status: 200, data: { message: `Service "${service.name}" deleted successfully` } }
+
+  } catch (err) {
+    console.error('[deleteService]', err)
+    return { error: err.message || 'Failed to delete service', status: 500 }
   }
 }
 

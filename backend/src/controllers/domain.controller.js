@@ -1,16 +1,6 @@
-/**
- * domain.controller.js
- *
- * All functions return a plain result object:
- *   { success: true,  data: …,    status?: number }
- *   { error: '…',                 status: number  }
- *
- * `handleResult` in routeUtils maps this to a Fastify reply.
- */
-
 import { Domain } from '../models/domain.model.js'
 import { cleanSubdomain, isValidSubdomain, isReservedSubdomain } from '../utils/domain.js'
-import { rebuildZoneFile } from '../services/dns.service.js'
+import { syncDomainToCloudflare, removeDomainFromCloudflare } from '../services/dns.service.js'
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -36,38 +26,27 @@ export async function createDomain(request) {
     return { error: `"${subdomain}" is reserved and cannot be registered`, status: 400 }
   }
 
-  // Optional: cap how many domains one user can own
   const MAX_PER_USER = parseInt(process.env.MAX_DOMAINS_PER_USER || '5', 10)
   const count = await Domain.countDocuments({ userId: request.user.id })
   if (count >= MAX_PER_USER) {
     return { error: `You can only have ${MAX_PER_USER} domains`, status: 429 }
   }
-//   console.log("first")
 
-console.log('[createDomain] userId:', request.user.id, typeof request.user.id)
-console.log('[createDomain] subdomain:', subdomain)
   try {
     const domain = await Domain.create({
       userId: request.user.id,
       subdomain,
     })
-    // console.log("second")
-    // No IP yet — zone file doesn't need updating until user sets one
+
     return { success: true, data: domain.toJSON(), status: 201 }
 
-} catch (err) {
-  console.error('[createDomain] full error:', {
-    code: err.code,
-    message: err.message,
-    errors: err.errors,        // ← Mongoose validation errors
-    keyValue: err.keyValue,    // ← which field caused 11000
-  })
-
-  if (err.code === 11000) {
-    return { error: 'Subdomain is already taken', status: 409 }
+  } catch (err) {
+    if (err.code === 11000) {
+      return { error: 'Subdomain is already taken', status: 409 }
+    }
+    console.error('[createDomain]', err)
+    return { error: 'Failed to create domain', status: 500 }
   }
-  return { error: 'Failed to create domain', status: 500 }
-}
 }
 
 
@@ -99,7 +78,6 @@ export async function updateDomainIP(request) {
     return { error: 'Provide at least one of: ip, ipv6', status: 400 }
   }
 
-  // Loose validation — accept any plausible IP string
   if (ip !== undefined && ip !== null && ip !== '' && !isLooseIP(ip)) {
     return { error: 'Invalid IPv4 address', status: 400 }
   }
@@ -114,15 +92,16 @@ export async function updateDomainIP(request) {
   }
 
   const patch = { lastUpdatedAt: new Date() }
-  if (ip  !== undefined) patch.ip   = ip  || null
+  if (ip   !== undefined) patch.ip   = ip   || null
   if (ipv6 !== undefined) patch.ipv6 = ipv6 || null
 
   await Domain.updateOne({ _id: id }, { $set: patch })
 
-  // Sync CoreDNS zone file
-  await rebuildZoneFile()
-
+  // Fetch updated doc BEFORE passing to Cloudflare
   const updated = await Domain.findById(id).lean({ virtuals: true })
+
+  await syncDomainToCloudflare(updated)
+
   return { success: true, data: updated }
 }
 
@@ -140,8 +119,7 @@ export async function deleteDomain(request) {
 
   await Domain.deleteOne({ _id: id })
 
-  // Remove from zone file
-  await rebuildZoneFile()
+  await removeDomainFromCloudflare(domain)
 
   return {
     success: true,
@@ -151,9 +129,8 @@ export async function deleteDomain(request) {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 🌐 PUBLIC: RESOLVE — used by the updater script / clients
+// 🌐 PUBLIC: RESOLVE
 //    GET /api/domains/resolve/:subdomain
-//    Returns the stored IP for a subdomain (no auth required)
 // ─────────────────────────────────────────────────────────────────────────────
 export async function resolveDomain(request) {
   const { subdomain } = request.params
@@ -167,16 +144,15 @@ export async function resolveDomain(request) {
     success: true,
     data: {
       subdomain: domain.subdomain,
-      ip:   domain.ip,
-      ipv6: domain.ipv6,
+      ip:        domain.ip,
+      ipv6:      domain.ipv6,
     },
   }
 }
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 🔑 TOKEN-BASED UPDATE — for the customer's cron / updater script
-//    No session required, just subdomain + API token
+// 🔑 TOKEN-BASED UPDATE — for customer's cron / updater script
 //    PATCH /api/domains/update-ip
 // ─────────────────────────────────────────────────────────────────────────────
 export async function updateIPViaToken(request) {
@@ -186,7 +162,6 @@ export async function updateIPViaToken(request) {
     return { error: 'subdomain and token are required', status: 400 }
   }
 
-  // Look up domain and verify token against hashed value
   const domain = await Domain.findOne({ subdomain: subdomain.toLowerCase() })
     .populate('userId', 'apiToken')
 
@@ -194,7 +169,6 @@ export async function updateIPViaToken(request) {
     return { error: 'Subdomain not found', status: 404 }
   }
 
-  // Simple comparison — replace with bcrypt.compare() if you hash tokens
   if (domain.userId?.apiToken !== token) {
     return { error: 'Invalid token', status: 401 }
   }
@@ -204,7 +178,10 @@ export async function updateIPViaToken(request) {
   if (ipv6 !== undefined) patch.ipv6 = ipv6 || null
 
   await Domain.updateOne({ _id: domain._id }, { $set: patch })
-  await rebuildZoneFile()
+
+  const updated = await Domain.findById(domain._id).lean({ virtuals: true })
+
+  await syncDomainToCloudflare(updated)
 
   return { success: true, message: `IP updated for ${domain.subdomain}` }
 }
@@ -214,11 +191,9 @@ export async function updateIPViaToken(request) {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 function isLooseIP(str) {
-  // Accepts standard IPv4 dotted-decimal
   return /^(\d{1,3}\.){3}\d{1,3}$/.test(str)
 }
 
 function isLooseIPv6(str) {
-  // Very loose — just check it has colons and hex chars
   return /^[0-9a-fA-F:]+$/.test(str) && str.includes(':')
 }

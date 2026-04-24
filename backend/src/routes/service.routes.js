@@ -7,69 +7,99 @@ import {
   getService,
   getAllServices,
   updateService,
+  deleteService,
   createPrivateService,
   checkPrivateRepo,
+
 } from '../controllers/service.controller.js'
+import {
+  createDockerfileService,
+  createDockerImageService,
+} from '../controllers/docker.controller.js'
 import { handleResult } from '../utils/index.js'
 
 export async function serviceRoutes(app) {
 
-  // ── Must be before /:serviceId so Fastify doesn't treat fixed paths as params
+  // ── Static helpers (must be registered before /:serviceId param routes) ───
+
+  // ── Must be before /:serviceId so Fastify doesn't treat "check-repo" as a param
   app.get('/api/services/check-repo', async (request, reply) => {
     const result = await checkRepo(request)
     return handleResult(reply, result)
   })
-
   app.get('/api/services/check-private-repo', async (request, reply) => {
     const result = await checkPrivateRepo(request)
     return handleResult(reply, result)
   })
 
-  // GET  /api/services          — list all user's services
+  // ── List / create ─────────────────────────────────────────────────────────
+
   app.get('/api/services', async (request, reply) => {
     const result = await getAllServices(request)
     return reply.send(result)
   })
 
-  // POST /api/services          — create public service
+  // POST /api/services          — create service (returns serviceId)
+  // Public-repo git deploy (Nixpacks / Static)
   app.post('/api/services', async (request, reply) => {
     const result = await createService(request)
     return handleResult(reply, result)
   })
 
-  // POST /api/services/private  — create private-repo service
+  // Private-repo git deploy (Nixpacks / Static via GitHub App)
   app.post('/api/services/private', async (request, reply) => {
     const result = await createPrivateService(request)
     return handleResult(reply, result)
   })
 
-  // GET  /api/services/:serviceId
+  // Dockerfile deploy (public or private repo, docker build -f)
+  app.post('/api/services/dockerfile', async (request, reply) => {
+    const result = await createDockerfileService(request)
+    return handleResult(reply, result)
+  })
+
+  // Docker image deploy (docker pull + run, no build step)
+  app.post('/api/services/docker-image', async (request, reply) => {
+    const result = await createDockerImageService(request)
+    return handleResult(reply, result)
+  })
+
+  // ── Per-service operations ────────────────────────────────────────────────
+
   app.get('/api/services/:serviceId', async (request, reply) => {
     const result = await getService(request)
     return handleResult(reply, result)
   })
 
-  // PATCH /api/services/:serviceId
+  // PATCH /api/services/:serviceId      — save config (domain, envVars, buildPack etc.)
   app.patch('/api/services/:serviceId', async (request, reply) => {
     const result = await updateService(request)
     return handleResult(reply, result)
   })
 
-  // POST /api/services/:serviceId/deploy
+  // DELETE /api/services/:serviceId     — delete service + all deployments & logs
+  app.delete('/api/services/:serviceId', async (request, reply) => {
+    const result = await deleteService(request)
+    return handleResult(reply, result)
+  })
+
+  // POST /api/services/:serviceId/deploy  — queue a deployment job, returns deploymentId
   app.post('/api/services/:serviceId/deploy', async (request, reply) => {
     const result = await deployService(request)
     return handleResult(reply, result)
   })
 
-  // GET  /api/services/:serviceId/deployments
+  // GET  /api/services/:serviceId/deployments  — deployment history
   app.get('/api/services/:serviceId/deployments', async (request, reply) => {
     const result = await getDeployments(request)
     return reply.send(result)
   })
 
-  // GET  /api/deployments/:deploymentId/logs  — SSE
+  // ── Deployment SSE log stream ─────────────────────────────────────────────
+// stream of live build logs
+  // Browser: const es = new EventSource('/api/deployments/:id/logs')
+  // Events:  data (log line) | done (finished) | timeout
   app.get('/api/deployments/:deploymentId/logs', async (request, reply) => {
     return streamDeploymentLogs(request, reply)
   })
-
 }
