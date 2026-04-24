@@ -47,6 +47,7 @@ export async function createDatabase(request) {
   }
 
   const service = await Service.create({
+    userId:        request.user.id,  // ← add this
     projectId,
     environmentId: envId,
     serverId:      server._id,

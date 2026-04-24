@@ -17,19 +17,16 @@ const SERVER_STATUS = {
   ERROR:       { color: '#ff5555', label: 'Error',       icon: AlertCircle },
 }
 
-// Popular public images for quick-pick
 const POPULAR_IMAGES = [
-  { label: 'nginx',        value: 'nginx:latest',         port: 80,   desc: 'Web server / reverse proxy' },
-  { label: 'node',         value: 'node:20-alpine',       port: 3000, desc: 'Node.js runtime' },
-  { label: 'python',       value: 'python:3.12-slim',     port: 8000, desc: 'Python 3.12' },
-  { label: 'redis',        value: 'redis:7-alpine',       port: 6379, desc: 'In-memory data store' },
-  { label: 'postgres',     value: 'postgres:16-alpine',   port: 5432, desc: 'PostgreSQL database' },
-  { label: 'ghost',        value: 'ghost:latest',         port: 2368, desc: 'Blog platform' },
-  { label: 'wordpress',    value: 'wordpress:latest',     port: 80,   desc: 'CMS platform' },
-  { label: 'minio/minio',  value: 'minio/minio:latest',  port: 9000, desc: 'S3-compatible storage' },
+  { label: 'nginx',       value: 'nginx',        tag: 'latest',  port: 80,   desc: 'Web server / reverse proxy' },
+  { label: 'node',        value: 'node',         tag: '20-alpine', port: 3000, desc: 'Node.js runtime' },
+  { label: 'python',      value: 'python',       tag: '3.12-slim', port: 8000, desc: 'Python 3.12' },
+  { label: 'redis',       value: 'redis',        tag: '7-alpine', port: 6379, desc: 'In-memory data store' },
+  { label: 'postgres',    value: 'postgres',     tag: '16-alpine', port: 5432, desc: 'PostgreSQL database' },
+  { label: 'ghost',       value: 'ghost',        tag: 'latest',  port: 2368, desc: 'Blog platform' },
+  { label: 'wordpress',   value: 'wordpress',    tag: 'latest',  port: 80,   desc: 'CMS platform' },
+  { label: 'minio/minio', value: 'minio/minio',  tag: 'latest',  port: 9000, desc: 'S3-compatible storage' },
 ]
-
-// ── Shared components ─────────────────────────────────────────────────────────
 
 function Tooltip({ text }) {
   return (
@@ -147,26 +144,21 @@ function ServerDropdown({ servers, value, onChange, open, setOpen, isLoading }) 
   )
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
-
 export default function DockerImageDeployPage() {
   const navigate = useNavigate()
 
-  const [imageName,        setImageName]        = useState('')
-  const [imageTag,         setImageTag]         = useState('latest')
-  const [port,             setPort]             = useState('80')
-  const [serverId,         setServerId]         = useState('')
-  const [serverOpen,       setServerOpen]       = useState(false)
-
-  // Private registry
-  const [usePrivateReg,    setUsePrivateReg]    = useState(false)
-  const [registryUrl,      setRegistryUrl]      = useState('')
-  const [registryUser,     setRegistryUser]     = useState('')
-  const [registryPassword, setRegistryPassword] = useState('')
-  const [showPassword,     setShowPassword]     = useState(false)
-
-  const [loading, setLoading] = useState(false)
-  const [error,   setError]   = useState(null)
+  const [imageName,         setImageName]         = useState('')
+  const [imageTag,          setImageTag]           = useState('latest')
+  const [port,              setPort]               = useState('80')
+  const [serverId,          setServerId]           = useState('')
+  const [serverOpen,        setServerOpen]         = useState(false)
+  const [usePrivateReg,     setUsePrivateReg]      = useState(false)
+  const [registryUrl,       setRegistryUrl]        = useState('')
+  const [registryUser,      setRegistryUser]       = useState('')
+  const [registryPassword,  setRegistryPassword]   = useState('')
+  const [showPassword,      setShowPassword]       = useState(false)
+  const [loading,           setLoading]            = useState(false)
+  const [error,             setError]              = useState(null)
 
   const { data: serversRes, isLoading: serversLoading } = useQuery({
     queryKey: ['servers'],
@@ -176,15 +168,8 @@ export default function DockerImageDeployPage() {
   const servers = serversRes?.data ?? []
 
   const handleQuickPick = (img) => {
-    // e.g. "nginx:latest" → name="nginx", tag="latest"
-    const colonIdx = img.value.lastIndexOf(':')
-    if (colonIdx > 0) {
-      setImageName(img.value.slice(0, colonIdx))
-      setImageTag(img.value.slice(colonIdx + 1))
-    } else {
-      setImageName(img.value)
-      setImageTag('latest')
-    }
+    setImageName(img.value)
+    setImageTag(img.tag)
     setPort(String(img.port))
   }
 
@@ -198,9 +183,9 @@ export default function DockerImageDeployPage() {
     try {
       const { data } = await api.post('/api/services/docker-image', {
         serverId,
-        imageName:        imageName.trim(),
-        imageTag:         imageTag.trim() || 'latest',
-        internalPort:     Number(port),
+        imageName:    imageName.trim(),
+        imageTag:     imageTag.trim() || 'latest',
+        internalPort: Number(port),
         ...(usePrivateReg ? {
           registryUrl:      registryUrl.trim()  || undefined,
           registryUser:     registryUser.trim()  || undefined,
@@ -233,15 +218,13 @@ export default function DockerImageDeployPage() {
           <ArrowLeft size={15} /> Back
         </button>
 
-        {/* Header */}
         <div className="mb-8">
           <div className="flex items-center gap-2.5 mb-1">
             <Container size={20} className="text-[var(--primary)]" />
             <h1 className="text-[1.75rem] font-extrabold tracking-[-0.02em]">Deploy Docker Image</h1>
           </div>
           <p className="text-[var(--text-secondary)] text-sm">
-            Pull and run any Docker image from Docker Hub or a private registry.
-            No build step — just pull and run.
+            Pull and run any Docker image from Docker Hub or a private registry. No build step — just pull and run.
           </p>
         </div>
 
@@ -260,7 +243,7 @@ export default function DockerImageDeployPage() {
                     title={img.desc}
                     className={`
                       px-3 py-1.5 rounded-full text-xs font-semibold border transition-all
-                      ${imageName === img.value.split(':')[0]
+                      ${imageName === img.value
                         ? 'bg-[var(--primary)] border-[var(--primary)] text-white'
                         : 'bg-[var(--bg-highest)] border-[var(--border-ghost)] text-[var(--text-secondary)] hover:border-[var(--primary)] hover:text-[var(--primary)]'
                       }
@@ -279,29 +262,38 @@ export default function DockerImageDeployPage() {
               <Label required tooltip="Docker image name, e.g. 'nginx', 'myorg/myapp', or 'registry.io/myapp'.">
                 Image Name
               </Label>
-              <div className="flex gap-2">
+
+              <div className="flex gap-2 items-center">
                 <Input
                   value={imageName}
                   onChange={e => setImageName(e.target.value)}
                   placeholder="nginx"
-                  className="flex-1"
+                  className="flex-1 min-w-0"
                 />
-                <span className="flex items-center text-[var(--text-muted)] text-sm select-none">:</span>
+
+                <span className="text-[var(--text-muted)] text-sm select-none flex-shrink-0">
+                  :
+                </span>
+
                 <Input
                   value={imageTag}
                   onChange={e => setImageTag(e.target.value)}
                   placeholder="latest"
-                  className="w-32"
+                  className="flex-1 min-w-0"
                 />
               </div>
+
               {fullImagePreview && (
                 <p className="mt-1.5 text-[0.72rem] text-[var(--text-muted)]">
-                  Full image reference: <code className="text-[var(--text-secondary)] bg-[var(--bg-highest)] px-1.5 py-0.5 rounded">{fullImagePreview}</code>
+                  Full image:{" "}
+                  <code className="text-[var(--text-secondary)] bg-[var(--bg-highest)] px-1.5 py-0.5 rounded">
+                    {fullImagePreview}
+                  </code>
                 </p>
               )}
             </div>
 
-            {/* Server + Port side-by-side */}
+            {/* Server + Port */}
             <div className="grid grid-cols-[1fr_120px] gap-4 items-end">
               <div onClick={e => e.stopPropagation()}>
                 <Label required tooltip="Virtual machine to deploy on. Only connected servers are selectable.">
@@ -332,10 +324,8 @@ export default function DockerImageDeployPage() {
                   role="checkbox"
                   aria-checked={usePrivateReg}
                   onClick={() => setUsePrivateReg(s => !s)}
-                  className={`
-                    relative w-4 h-4 rounded flex-shrink-0 border transition-all
-                    ${usePrivateReg ? 'bg-[var(--primary)] border-[var(--primary)]' : 'bg-[var(--bg-highest)] border-[var(--border-ghost)] hover:border-[var(--primary)]'}
-                  `}
+                  className={`relative w-4 h-4 rounded flex-shrink-0 border transition-all
+                    ${usePrivateReg ? 'bg-[var(--primary)] border-[var(--primary)]' : 'bg-[var(--bg-highest)] border-[var(--border-ghost)] hover:border-[var(--primary)]'}`}
                 >
                   {usePrivateReg && (
                     <svg className="absolute inset-0 w-full h-full p-[2px]" viewBox="0 0 12 12" fill="none">
@@ -352,28 +342,18 @@ export default function DockerImageDeployPage() {
               {usePrivateReg && (
                 <div className="flex flex-col gap-3 pl-7 animate-[fadeIn_0.15s_ease-out]">
                   <div>
-                    <Label tooltip="Registry hostname, e.g. ghcr.io, registry.gitlab.com. Leave blank for Docker Hub.">
-                      Registry URL
-                      <span className="text-[0.65rem] font-normal text-[var(--text-muted)] ml-1">(optional — blank = Docker Hub)</span>
+                    <Label tooltip="Registry hostname, e.g. ghcr.io. Leave blank for Docker Hub.">
+                      Registry URL <span className="text-[0.65rem] font-normal text-[var(--text-muted)] ml-1">(optional)</span>
                     </Label>
-                    <Input
-                      value={registryUrl}
-                      onChange={e => setRegistryUrl(e.target.value)}
-                      placeholder="ghcr.io"
-                    />
+                    <Input value={registryUrl} onChange={e => setRegistryUrl(e.target.value)} placeholder="ghcr.io" />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <Label tooltip="Registry username or service account.">Username</Label>
-                      <Input
-                        value={registryUser}
-                        onChange={e => setRegistryUser(e.target.value)}
-                        placeholder="myuser"
-                        autoComplete="off"
-                      />
+                      <Label>Username</Label>
+                      <Input value={registryUser} onChange={e => setRegistryUser(e.target.value)} placeholder="myuser" autoComplete="off" />
                     </div>
                     <div>
-                      <Label tooltip="Registry password or access token.">Password / Token</Label>
+                      <Label>Password / Token</Label>
                       <div className="relative">
                         <Input
                           value={registryPassword}
@@ -393,11 +373,10 @@ export default function DockerImageDeployPage() {
                       </div>
                     </div>
                   </div>
-
                   <div className="flex items-start gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-[var(--radius-md)]">
                     <Lock size={12} className="text-amber-400 mt-0.5 flex-shrink-0" />
                     <p className="text-[0.7rem] text-amber-300/80 leading-relaxed">
-                      Credentials are stored encrypted in your service config and used only during image pulls.
+                      Credentials are stored encrypted and used only during image pulls.
                     </p>
                   </div>
                 </div>
@@ -412,11 +391,10 @@ export default function DockerImageDeployPage() {
             </div>
           )}
 
-          {/* Info strip */}
           <div className="mt-3 flex items-start gap-2 px-3 py-2.5 bg-[var(--bg-elevated)] border border-[var(--border-ghost)] rounded-[var(--radius-md)]">
             <Container size={13} className="text-[var(--primary)] mt-0.5 flex-shrink-0" />
             <p className="text-[0.72rem] text-[var(--text-muted)] leading-relaxed">
-              GitSync will run <code className="text-[var(--text-secondary)] bg-[var(--bg-highest)] px-1 rounded">docker pull {fullImagePreview || '<image>:<tag>'}</code> on your server, then start a container and configure Nginx routing automatically.
+              Will run <code className="text-[var(--text-secondary)] bg-[var(--bg-highest)] px-1 rounded">docker pull {fullImagePreview || '<image>:<tag>'}</code> on your server, then start a container and configure Nginx routing automatically.
             </p>
           </div>
 

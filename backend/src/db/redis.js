@@ -8,8 +8,9 @@ function parseRedisUrl(url) {
     return {
       host:     u.hostname,
       port:     parseInt(u.port, 10) || (u.protocol === 'rediss:' ? 6380 : 6379),
-      password: u.password || undefined,
-      username: u.username || undefined,
+      password: u.password ? decodeURIComponent(u.password) : undefined,
+      // Don't pass username — Coolify Redis uses password-only auth
+      // username: u.username || undefined,  ← remove this
       tls:      u.protocol === 'rediss:' ? {} : undefined,
     }
   } catch {

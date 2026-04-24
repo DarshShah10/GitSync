@@ -53,14 +53,32 @@ export const deployService = async (request) => {
       return { error: 'No domain configured. Set a domain in Configuration → General first.', status: 400 }
     }
 
-    const cfg = service.config ?? {}
-    if (!cfg.repoUrl) return { error: 'Service has no repoUrl in config', status: 400 }
+    // ── Prevent concurrent deployments for the same service ─────────────────
+    const activeDeployment = await Deployment.findOne({
+      serviceId: service._id,
+      status: { $in: ['QUEUED', 'BUILDING', 'DEPLOYING'] },
+    })
+    if (activeDeployment) {
+      return {
+        error: `A deployment is already in progress (status: ${activeDeployment.status}). Wait for it to finish before starting a new one.`,
+        status: 409,
+      }
+    }
+
+    const cfg       = service.config ?? {}
+    const buildPack = (cfg.buildPack || 'NIXPACKS').toUpperCase()
+
+    if (buildPack !== 'DOCKER_IMAGE') {
+      if (!cfg.repoUrl) return { error: 'Service has no repoUrl in config', status: 400 }
+    } else {
+      if (!cfg.dockerImage) return { error: 'Service has no dockerImage in config', status: 400 }
+    }
 
     const deployment = await Deployment.create({
       serviceId:  service._id,
       status:     'QUEUED',
       trigger:    'MANUAL',
-      buildPack: 'NIXPACKS',
+      buildPack:  buildPack,
       startedAt:  new Date(),
     })
 
@@ -82,28 +100,46 @@ export const deployService = async (request) => {
 
 
 // GET /api/deployments/:deploymentId/logs  — SSE endpoint
+// EventSource cannot send Authorization headers — accepts JWT as ?token= query param
 export const streamDeploymentLogs = async (request, reply) => {
   const { deploymentId } = request.params
+
+  const token = request.query.token
+  if (!token) return reply.status(401).send({ error: 'Missing token query parameter' })
+
+  let userId
+  try {
+    const { verifyToken } = await import('../utils/jwt.utils.js')
+    const payload = verifyToken(token)
+    userId = payload?.id || payload?.userId || payload?.sub
+    if (!userId) throw new Error('No user id in token')
+  } catch (err) {
+    return reply.status(401).send({ error: 'Invalid or expired token' })
+  }
 
   const deployment = await Deployment.findById(deploymentId)
   if (!deployment) return reply.status(404).send({ error: 'Deployment not found' })
 
-  const service = await Service.findOne({ _id: deployment.serviceId, userId: request.user.id })
+  const service = await Service.findOne({ _id: deployment.serviceId, userId })
   if (!service) return reply.status(403).send({ error: 'Forbidden' })
 
+  // In streamDeploymentLogs, replace the writeHead block with:
+  const origin = request.headers.origin || '*'
   reply.raw.writeHead(200, {
-    'Content-Type':      'text/event-stream',
-    'Cache-Control':     'no-cache',
-    'Connection':        'keep-alive',
-    'X-Accel-Buffering': 'no',
+    'Content-Type':                'text/event-stream',
+    'Cache-Control':               'no-cache',
+    'Connection':                  'keep-alive',
+    'X-Accel-Buffering':           'no',
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Credentials': 'true',
   })
 
   let lastLine     = 0
   let pollInterval = null
   let done         = false
 
-  const sendData  = (data)         => reply.raw.write(`data: ${JSON.stringify(data)}\n\n`)
-  const sendEvent = (event, data)  => reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+  const sendData  = (data)        => reply.raw.write(`data: ${JSON.stringify(data)}\n\n`)
+  const sendEvent = (event, data) => reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
 
   async function poll() {
     if (done) return
@@ -122,7 +158,7 @@ export const streamDeploymentLogs = async (request, reply) => {
         clearInterval(pollInterval)
         sendEvent('done', {
           status: current.status,
-          url:    current.status === 'SUCCESS' ? `http://${service.domain}` : null,
+          url:    current.status === 'SUCCESS' ? service.domain : null,
           error:  current.errorMessage ?? null,
         })
         reply.raw.end()
@@ -204,10 +240,7 @@ export const getService = async (request) => {
 // GET /api/services
 export const getAllServices = async (request) => {
   try {
-    const services = await Service.find({ 
-      userId: request.user.id,
-      status: { $ne: 'ERROR' }        // exclude ERROR status services
-    })
+    const services = await Service.find({ userId: request.user.id })
       .sort({ createdAt: -1 }).populate('serverId', 'name ip status')
     return services
   } catch (err) {
@@ -246,16 +279,13 @@ export const updateService = async (request) => {
 
 
 // DELETE /api/services/:serviceId
-// Removes the service and all associated deployments + logs
 export const deleteService = async (request) => {
   try {
     const { serviceId } = request.params
 
-    // Verify ownership before deleting
     const service = await Service.findOne({ _id: serviceId, userId: request.user.id })
     if (!service) return { error: 'Service not found', status: 404 }
 
-    // Block deletion if a build/deploy is actively in progress
     if (['BUILDING', 'DEPLOYING'].includes(service.status)) {
       return {
         error: `Cannot delete service while it is ${service.status.toLowerCase()}. Stop it first.`,
@@ -263,7 +293,6 @@ export const deleteService = async (request) => {
       }
     }
 
-    // Cascade delete: logs → deployments → service
     const deploymentIds = await Deployment.find({ serviceId }).distinct('_id')
     if (deploymentIds.length > 0) {
       await DeploymentLog.deleteMany({ deploymentId: { $in: deploymentIds } })
@@ -280,7 +309,8 @@ export const deleteService = async (request) => {
   }
 }
 
-// ─── POST /api/services/private — create service from private GitHub repo ─────
+
+// POST /api/services/private
 import { GitHubSource } from '../models/githubSource.model.js'
 import { checkRepoAccess } from '../services/github.service.js'
 
@@ -291,9 +321,9 @@ export const createPrivateService = async (request) => {
       branch, baseDir, buildPack, internalPort, isStatic,
     } = request.body ?? {}
 
-    if (!repoUrl)         return { error: 'repoUrl is required', status: 400 }
-    if (!serverId)        return { error: 'serverId is required', status: 400 }
-    if (!githubSourceId)  return { error: 'githubSourceId is required', status: 400 }
+    if (!repoUrl)        return { error: 'repoUrl is required', status: 400 }
+    if (!serverId)       return { error: 'serverId is required', status: 400 }
+    if (!githubSourceId) return { error: 'githubSourceId is required', status: 400 }
 
     const server = await Server.findOne({ _id: serverId, userId: request.user.id })
     if (!server) return { error: 'Server not found', status: 404 }
@@ -330,7 +360,7 @@ export const createPrivateService = async (request) => {
 }
 
 
-// ─── GET /api/services/check-private-repo?url=...&sourceId=... ────────────────
+// GET /api/services/check-private-repo
 export const checkPrivateRepo = async (request) => {
   try {
     const { url, sourceId } = request.query
@@ -353,5 +383,94 @@ export const checkPrivateRepo = async (request) => {
   } catch (err) {
     console.error('[checkPrivateRepo]', err)
     return { error: err.message, status: 400 }
+  }
+}
+
+
+// POST /api/services/:serviceId/webhook
+export const handleWebhook = async (request) => {
+  try {
+    const { serviceId } = request.params
+    const githubEvent = request.headers['x-github-event']
+
+    if (githubEvent && githubEvent !== 'push') {
+      return { status: 200, data: { message: `Event "${githubEvent}" ignored` } }
+    }
+
+    const service = await Service.findById(serviceId)
+    if (!service) return { error: 'Service not found', status: 404 }
+
+    if (service.config?.buildPack === 'DOCKER_IMAGE') {
+      return { status: 200, data: { message: 'Docker image services do not support webhook auto-redeploy' } }
+    }
+
+    if (!service.domain) {
+      return { status: 200, data: { message: 'Service has no domain — configure one first' } }
+    }
+
+    // Prevent concurrent deployments from webhook too
+    const activeDeployment = await Deployment.findOne({
+      serviceId: service._id,
+      status: { $in: ['QUEUED', 'BUILDING', 'DEPLOYING'] },
+    })
+    if (activeDeployment) {
+      return { status: 200, data: { message: 'Deployment already in progress — skipped' } }
+    }
+
+    let commitHash = null
+    let commitMsg  = null
+    let pusher     = null
+
+    try {
+      const payload = request.body
+      if (payload?.after) commitHash = payload.after.slice(0, 7)
+      if (payload?.head_commit?.message) commitMsg = payload.head_commit.message
+      if (payload?.pusher?.name) pusher = payload.pusher.name
+
+      if (payload?.ref && service.config?.branch) {
+        const pushedBranch = payload.ref.replace('refs/heads/', '')
+        if (pushedBranch !== service.config.branch) {
+          return { status: 200, data: { message: `Branch "${pushedBranch}" ignored — tracking "${service.config.branch}"` } }
+        }
+      }
+    } catch (_) {}
+
+    const deployment = await Deployment.create({
+      serviceId:     service._id,
+      status:        'QUEUED',
+      trigger:       'WEBHOOK',
+      buildPack:     service.config?.buildPack || 'NIXPACKS',
+      startedAt:     new Date(),
+      commitHash:    commitHash || null,
+      commitMessage: commitMsg  || null,
+    })
+
+    await Service.updateOne({ _id: serviceId }, { $set: { status: 'BUILDING' } })
+    await appDeployQueue.add('deploy', { deploymentId: deployment._id.toString() }, { jobId: `deploy-${deployment._id}` })
+
+    return { status: 200, data: { message: 'Deployment triggered', deploymentId: deployment._id, commitHash, commitMsg, pusher } }
+  } catch (err) {
+    console.error('[handleWebhook]', err)
+    return { error: err.message || 'Failed to handle webhook', status: 500 }
+  }
+}
+
+
+// GET /api/deployments/:deploymentId/log-lines
+export const getDeploymentLogLines = async (request) => {
+  try {
+    const { deploymentId } = request.params
+
+    const deployment = await Deployment.findById(deploymentId)
+    if (!deployment) return { error: 'Deployment not found', status: 404 }
+
+    const service = await Service.findOne({ _id: deployment.serviceId, userId: request.user.id })
+    if (!service) return { error: 'Forbidden', status: 403 }
+
+    const logs = await DeploymentLog.find({ deploymentId }).sort({ line: 1 }).lean()
+    return { data: logs }
+  } catch (err) {
+    console.error('[getDeploymentLogLines]', err)
+    return { error: err.message, status: 500 }
   }
 }
