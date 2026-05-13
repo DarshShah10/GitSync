@@ -28,16 +28,37 @@ export async function createServer(request) {
     },
   })
 
-  const job = await serverVerifyQueue.add(
+  // Enqueue verification without blocking the HTTP response.
+  // If Redis is momentarily reconnecting, queue.add() can hang for several
+  // seconds. We give it 8 s then move on — the server record already exists
+  // with status PENDING and the worker will still pick it up once Redis is
+  // ready (BullMQ persists jobs in Redis once the connection is restored).
+  const jobId = `verify-${server._id}`
+  const enqueue = serverVerifyQueue.add(
     'verify',
     { serverId: server._id.toString() },
-    { jobId: `verify-${server._id}` }
+    { jobId },
   )
+
+  const timeout = new Promise((resolve) => setTimeout(resolve, 8_000))
+
+  // Fire-and-forget — await whichever settles first; log but don't rethrow
+  Promise.race([enqueue, timeout])
+    .then((result) => {
+      if (result?.id) {
+        console.log(`[server] verify job queued: ${result.id}`)
+      } else {
+        console.warn(`[server] verify job enqueue timed out for ${server._id} — will retry via BullMQ reconnect`)
+      }
+    })
+    .catch((err) => {
+      console.error(`[server] verify job enqueue failed for ${server._id}:`, err.message)
+    })
 
   return {
     success: true,
     data:    sanitizeServer(server),
-    jobId:   job.id,
+    jobId,
     status: 201,
   }
 }

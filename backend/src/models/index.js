@@ -10,3 +10,5 @@ export * from "./s3Credential.model.js";
 export * from "./backupPolicy.model.js";
 export * from "./backupRun.model.js";
 export * from "./apiToken.model.js";
+export * from "./githubSource.model.js";
+export * from "./domain.model.js";

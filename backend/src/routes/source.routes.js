@@ -6,6 +6,9 @@ import {
   githubAppCallback,
   updateSource,
   deleteSource,
+  getSourceInstallations,
+  setInstallationId,
+  listSourceRepos,
 } from '../controllers/source.controller.js'
 import { handleResult } from '../utils/index.js'
 
@@ -37,6 +40,24 @@ export async function sourceRoutes(app) {
 
   app.post('/api/sources/github/initiate', async (request, reply) => {
     const result = await initiateAutomatedInstall(request)
+    return handleResult(reply, result)
+  })
+
+  // Get GitHub App installations for a source
+  app.get('/api/sources/:id/installations', async (request, reply) => {
+    const result = await getSourceInstallations(request)
+    return handleResult(reply, result)
+  })
+
+  // Set/update the installation ID on a source
+  app.post('/api/sources/:id/installation', async (request, reply) => {
+    const result = await setInstallationId(request)
+    return handleResult(reply, result)
+  })
+
+  // List repos accessible via this source's GitHub App installation
+  app.get('/api/sources/:id/repos', async (request, reply) => {
+    const result = await listSourceRepos(request)
     return handleResult(reply, result)
   })
 

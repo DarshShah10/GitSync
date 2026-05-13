@@ -78,12 +78,17 @@ export default function AddServerModal({ onClose, onCreated }) {
       onCreated?.(result.data)
       onClose()
     } catch (err) {
+      // Zod validation errors from the backend come as { details: [{path, message}] }
       const details = err.response?.data?.details
-      if (details) {
+      if (Array.isArray(details) && details.length) {
         const fe = {}
-        details.forEach(({ field, message }) => { fe[field] = message })
-        setErrors(fe)
+        details.forEach(({ path, field, message }) => {
+          const key = path ?? field
+          if (key) fe[key] = message
+        })
+        if (Object.keys(fe).length) setErrors(fe)
       }
+      // onError in useCreateServer already shows a toast for everything else
     }
   }
 
@@ -176,7 +181,7 @@ export default function AddServerModal({ onClose, onCreated }) {
             <div className="flex gap-1.5">
               {[
                 { value: 'PASSWORD', icon: Lock, label: 'Password' },
-                { value: 'KEY',      icon: Key,  label: 'SSH Key' },
+                { value: 'SSH_KEY',  icon: Key,  label: 'SSH Key' },
               ].map(({ value, icon: Icon, label }) => (
                 <button
                   key={value}
@@ -224,7 +229,7 @@ export default function AddServerModal({ onClose, onCreated }) {
           )}
 
           {/* SSH Key field */}
-          {form.authType === 'KEY' && (
+          {form.authType === 'SSH_KEY' && (
             <Field
               label="SSH Private Key"
               error={errors.privateKey}

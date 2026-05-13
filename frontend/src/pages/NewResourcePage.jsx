@@ -1,9 +1,18 @@
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import {
-    GitBranch, Key, FileCode, Layers, Box,
-    Database, Cloud, Cpu, Wind, Zap, BarChart2,
-    ArrowLeft, Search
-  } from 'lucide-react'
+  ArrowLeft,
+  Search,
+  GitBranch,
+  Key,
+  FileCode,
+  Layers,
+  Box,
+  Database,
+  Wind,
+  Zap,
+  BarChart2,
+  Cpu,
+} from 'lucide-react'
 import { useState } from 'react'
 
 // ── Resource option definitions ─────────────────────────────────────────────
@@ -15,6 +24,7 @@ const GIT_OPTIONS = [
     color: '#f05033',
     label: 'Public Repository',
     desc: 'Deploy any public repository from GitHub, GitLab, or Bitbucket.',
+    href: '/apps/new/git/public-repo',
   },
   {
     id: 'github-app',
@@ -22,6 +32,7 @@ const GIT_OPTIONS = [
     color: '#e8e8f0',
     label: 'Private Repository (GitHub App)',
     desc: 'Deploy public & private repositories through your connected GitHub App.',
+    href: '/apps/new/git/github-app',
   },
   {
     id: 'deploy-key',
@@ -29,6 +40,7 @@ const GIT_OPTIONS = [
     color: '#7070a0',
     label: 'Private Repository (Deploy Key)',
     desc: 'Deploy private repositories using an SSH deploy key.',
+    href: '/apps/new/git/deploy-key',
   },
 ]
 
@@ -39,6 +51,7 @@ const DOCKER_OPTIONS = [
     color: '#2496ed',
     label: 'Dockerfile',
     desc: 'Deploy using a Dockerfile in your repository — no Git source required.',
+    href: '/apps/new/docker/dockerfile',
   },
   {
     id: 'docker-compose',
@@ -46,6 +59,7 @@ const DOCKER_OPTIONS = [
     color: '#2496ed',
     label: 'Docker Compose',
     desc: 'Deploy multi-container applications using a docker-compose.yml file.',
+    href: '/apps/new/docker/docker-compose',
   },
   {
     id: 'docker-image',
@@ -53,18 +67,75 @@ const DOCKER_OPTIONS = [
     color: '#2496ed',
     label: 'Docker Image',
     desc: 'Deploy any existing image from Docker Hub or a private registry.',
+    href: '/apps/new/docker/docker-image',
   },
 ]
 
 const DATABASE_OPTIONS = [
-  { id: 'postgresql', icon: <Database size={24} />, color: '#336791', label: 'PostgreSQL',  desc: 'Reliable, open-source relational database.' },
-  { id: 'mysql',      icon: <Database size={24} />, color: '#4479a1', label: 'MySQL',       desc: 'The world\'s most popular open-source database.' },
-  { id: 'mongodb',    icon: <Database size={24} />, color: '#47a248', label: 'MongoDB',     desc: 'Flexible, document-oriented NoSQL database.' },
-  { id: 'redis',      icon: <Zap size={24} />,      color: '#dc382d', label: 'Redis',       desc: 'In-memory data structure store and cache.' },
-  { id: 'mariadb',    icon: <Database size={24} />, color: '#003545', label: 'MariaDB',     desc: 'Community-developed fork of MySQL.' },
-  { id: 'clickhouse', icon: <BarChart2 size={24} />,color: '#faff69', label: 'ClickHouse',  desc: 'Columnar OLAP database for real-time analytics.' },
-  { id: 'dragonfly',  icon: <Wind size={24} />,     color: '#6c63ff', label: 'DragonFly',   desc: 'Modern Redis-compatible in-memory store.' },
-  { id: 'keydb',      icon: <Cpu size={24} />,      color: '#e05252', label: 'KeyDB',       desc: 'High-performance Redis alternative.' },
+  {
+    id: 'postgresql',
+    icon: <Database size={24} />,
+    color: '#336791',
+    label: 'PostgreSQL',
+    desc: 'Reliable, open-source relational database.',
+    href: '/apps/new/database/postgresql',
+  },
+  {
+    id: 'mysql',
+    icon: <Database size={24} />,
+    color: '#4479a1',
+    label: 'MySQL',
+    desc: "The world's most popular open-source database.",
+    href: '/apps/new/database/mysql',
+  },
+  {
+    id: 'mongodb',
+    icon: <Database size={24} />,
+    color: '#47a248',
+    label: 'MongoDB',
+    desc: 'Flexible, document-oriented NoSQL database.',
+    href: '/apps/new/database/mongodb',
+  },
+  {
+    id: 'redis',
+    icon: <Zap size={24} />,
+    color: '#dc382d',
+    label: 'Redis',
+    desc: 'In-memory data structure store and cache.',
+    href: '/apps/new/database/redis',
+  },
+  {
+    id: 'mariadb',
+    icon: <Database size={24} />,
+    color: '#003545',
+    label: 'MariaDB',
+    desc: 'Community-developed fork of MySQL.',
+    href: '/apps/new/database/mariadb',
+  },
+  {
+    id: 'clickhouse',
+    icon: <BarChart2 size={24} />,
+    color: '#faff69',
+    label: 'ClickHouse',
+    desc: 'Columnar OLAP database for real-time analytics.',
+    href: '/apps/new/database/clickhouse',
+  },
+  {
+    id: 'dragonfly',
+    icon: <Wind size={24} />,
+    color: '#6c63ff',
+    label: 'DragonFly',
+    desc: 'Modern Redis-compatible in-memory store.',
+    href: '/apps/new/database/dragonfly',
+  },
+  {
+    id: 'keydb',
+    icon: <Cpu size={24} />,
+    color: '#e05252',
+    label: 'KeyDB',
+    desc: 'High-performance Redis alternative.',
+    href: '/apps/new/database/keydb',
+  },
 ]
 
 // ── Sub-components ───────────────────────────────────────────────────────────
@@ -83,7 +154,7 @@ function SectionLabel({ children }) {
 function ResourceCard({ option, onClick, compact = false }) {
   return (
     <button
-      onClick={() => onClick(option.id)}
+      onClick={() => onClick(option.href)}
       className={`
         group w-full text-left
         bg-[var(--bg-elevated)] border border-[var(--border-ghost)]
@@ -129,36 +200,29 @@ function ResourceCard({ option, onClick, compact = false }) {
 // ── Main Page ────────────────────────────────────────────────────────────────
 
 export default function NewResourcePage() {
-  const navigate   = useNavigate()
-  const { projectId, environmentId } = useParams()
+  const navigate = useNavigate()
   const [search, setSearch] = useState('')
 
-  // Filter all options by search query
   const q = search.toLowerCase().trim()
   const filterOpts = (opts) =>
     q ? opts.filter(o => o.label.toLowerCase().includes(q) || o.desc.toLowerCase().includes(q)) : opts
 
-  const filteredGit    = filterOpts(GIT_OPTIONS)
+  const filteredGit = filterOpts(GIT_OPTIONS)
   const filteredDocker = filterOpts(DOCKER_OPTIONS)
-  const filteredDB     = filterOpts(DATABASE_OPTIONS)
-  const noResults      = q && !filteredGit.length && !filteredDocker.length && !filteredDB.length
+  const filteredDB = filterOpts(DATABASE_OPTIONS)
+  const noResults = q && !filteredGit.length && !filteredDocker.length && !filteredDB.length
 
-  const handleSelect = (type, id) => {
-    // Navigate to the appropriate deploy form
-    // Adjust the route to match your router setup
-    navigate(`/apps/new/${type}/${id}`)
-
+  const handleSelect = (href) => {
+    navigate(href)
   }
 
   return (
     <div className="animate-[fadeIn_0.25s_ease-out] max-w-[860px]">
-
       {/* ── Header ── */}
       <div className="mb-8">
         <button
           onClick={() => navigate(-1)}
-          className="flex items-center gap-2 text-[var(--text-secondary)] text-sm mb-5
-                     hover:text-[var(--text-primary)] transition-colors"
+          className="flex items-center gap-2 text-[var(--text-secondary)] text-sm mb-5 hover:text-[var(--text-primary)] transition-colors"
         >
           <ArrowLeft size={15} /> Back
         </button>
@@ -198,11 +262,12 @@ export default function NewResourcePage() {
       {noResults ? (
         <div className="flex flex-col items-center justify-center py-20 text-[var(--text-muted)]">
           <Search size={32} className="mb-4 opacity-40" />
-          <p className="text-sm">No resources match <strong className="text-[var(--text-secondary)]">"{search}"</strong></p>
+          <p className="text-sm">
+            No resources match <strong className="text-[var(--text-secondary)]">"{search}"</strong>
+          </p>
         </div>
       ) : (
         <div className="flex flex-col gap-10">
-
           {/* ── Git Based ── */}
           {filteredGit.length > 0 && (
             <section>
@@ -212,7 +277,7 @@ export default function NewResourcePage() {
                   <ResourceCard
                     key={opt.id}
                     option={opt}
-                    onClick={(id) => handleSelect('git', id)}
+                    onClick={handleSelect}
                   />
                 ))}
               </div>
@@ -228,7 +293,7 @@ export default function NewResourcePage() {
                   <ResourceCard
                     key={opt.id}
                     option={opt}
-                    onClick={(id) => handleSelect('docker', id)}
+                    onClick={handleSelect}
                   />
                 ))}
               </div>
@@ -244,14 +309,13 @@ export default function NewResourcePage() {
                   <ResourceCard
                     key={opt.id}
                     option={opt}
-                    onClick={(id) => handleSelect('database', id)}
+                    onClick={handleSelect}
                     compact
                   />
                 ))}
               </div>
             </section>
           )}
-
         </div>
       )}
     </div>

@@ -20,7 +20,11 @@ import ServerApps from './pages/server/ServerApps.jsx'
 import ServerDatabases from './pages/server/ServerDatabases.jsx'
 // import { NewResourcePage } from './pages/NewResourcePage.jsx'
 import PublicRepoDeployPage from './pages/PublicRepoDeployPage.jsx'
+import PrivateRepoDeployPage from './pages/PrivateRepoDeployPage.jsx'
+import DockerfileDeployPage from './pages/DockerFileDeployPage.jsx'
+import DockerImageDeployPage from './pages/DockerImageDeployPage.jsx'
 import ServiceConfigurationPage from './pages/ServiceConfigurationPage.jsx'
+import DomainPage from './pages/DomainPage.jsx'
 
 export default function App() {
   return (
@@ -42,12 +46,15 @@ export default function App() {
 
           {/* Global Pages */}
           <Route path="servers" element={<ServersPage />} />
+          <Route path="domains" element={<DomainPage />} />
           <Route path="apps" element={<GlobalAppsPage />} />
           <Route path="apps/resource" element={<NewResourcePage/>} />
           <Route path="databases" element={<GlobalDatabasesPage />} />
           <Route path="databases/:id" element={<DatabaseDetailPage />} />
-          // In your router
           <Route path="/apps/new/git/public-repo" element={<PublicRepoDeployPage />} />
+          <Route path="/apps/new/git/github-app" element={<PrivateRepoDeployPage />} />
+          <Route path="/apps/new/docker/dockerfile" element={<DockerfileDeployPage />} />
+          <Route path="/apps/new/docker/docker-image" element={<DockerImageDeployPage />} />
           <Route path="/apps/:serviceId" element={<ServiceConfigurationPage />} />
 
           {/* Settings, Monitoring, Backups, Logs currently mocked to Coming Soon */}
