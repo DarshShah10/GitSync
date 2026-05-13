@@ -10,6 +10,10 @@ import {
   deleteService,
 } from '../controllers/service.controller.js'
 import { handleResult } from '../utils/index.js'
+import { verifyToken } from '../utils/jwt.utils.js'
+import { User } from '../models/index.js'
+
+
 
 export async function serviceRoutes(app) {
 
@@ -64,8 +68,11 @@ export async function serviceRoutes(app) {
   // GET  /api/deployments/:deploymentId/logs  — SSE stream of live build logs
   // Browser: const es = new EventSource('/api/deployments/:id/logs')
   // Events:  data (log line) | done (finished) | timeout
-  app.get('/api/deployments/:deploymentId/logs', async (request, reply) => {
-    return streamDeploymentLogs(request, reply)
-  })
+  // app.get('/api/deployments/:deploymentId/logs', async (request, reply) => {
+  //   return streamDeploymentLogs(request, reply)
+  // })// Back to simple — no preHandler needed
+app.get('/api/deployments/:deploymentId/logs', async (request, reply) => {
+  return streamDeploymentLogs(request, reply)
+})
 
 }

@@ -91,11 +91,20 @@ export const streamDeploymentLogs = async (request, reply) => {
   const service = await Service.findOne({ _id: deployment.serviceId, userId: request.user.id })
   if (!service) return reply.status(403).send({ error: 'Forbidden' })
 
+  // reply.raw.writeHead(200, {
+  //   'Content-Type':      'text/event-stream',
+  //   'Cache-Control':     'no-cache',
+  //   'Connection':        'keep-alive',
+  //   'X-Accel-Buffering': 'no',
+  // })
+
   reply.raw.writeHead(200, {
-    'Content-Type':      'text/event-stream',
-    'Cache-Control':     'no-cache',
-    'Connection':        'keep-alive',
-    'X-Accel-Buffering': 'no',
+    'Content-Type':                     'text/event-stream',
+    'Cache-Control':                    'no-cache',
+    'Connection':                       'keep-alive',
+    'X-Accel-Buffering':                'no',
+    'Access-Control-Allow-Origin':      request.headers.origin ?? 'http://localhost:5173',
+    'Access-Control-Allow-Credentials': 'true',
   })
 
   let lastLine     = 0

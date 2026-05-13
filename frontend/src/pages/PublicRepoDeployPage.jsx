@@ -315,7 +315,7 @@ export default function PublicRepoDeployPage() {
         isStatic,
         type: 'APP',
       })
-      console.log(data.serverId)
+      // console.log(data.serverId)
       console.log(data.data.serviceId)
       console.log(data)
       // console.log(data.data.serverId)
